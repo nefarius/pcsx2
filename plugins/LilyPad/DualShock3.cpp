@@ -95,7 +95,7 @@ struct DS3Command {
 
 int CharToPressure(unsigned char c) {
     int v = (int)c + ((unsigned int)c >> 7);
-    return ((c / 2) * FULLY_DOWN) >> 7;
+    return ((v / 2) * FULLY_DOWN) >> 7;
 }
 
 int CharToAxis(unsigned char c) {
