@@ -316,7 +316,6 @@ BOOL WINAPI DllMain(HINSTANCE hInstance, DWORD fdwReason, void* lpvReserved) {
 		while (openCount)
 			PADclose();
 		PADshutdown();
-		UninitLibUsb();
 		DeleteCriticalSection( &updateLock );
 	}
 	return 1;
