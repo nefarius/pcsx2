@@ -20,359 +20,267 @@
  */
 
 #include "joystick.h"
+#include "resources.h"
 #include <signal.h> // sigaction
 
 //////////////////////////
 // Joystick definitions //
 //////////////////////////
 
-static u32 s_bSDLInit = false;
-
-void JoystickInfo::UpdateReleaseState()
-{
-	vector<GamePad*>::iterator itjoy = s_vgamePad.begin();
-
-	SDL_JoystickUpdate();
-
-	// Save everything in the vector s_vjoysticks.
-	while (itjoy != s_vgamePad.end())
-	{
-		(*itjoy)->SaveState();
-		++itjoy;
-	}
-}
-
 // opens handles to all possible joysticks
-void JoystickInfo::EnumerateJoysticks(vector<GamePad*>& vjoysticks)
+void JoystickInfo::EnumerateJoysticks(std::vector<std::unique_ptr<GamePad>> &vjoysticks)
 {
+    uint32_t flag = SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER;
 
-	if (!s_bSDLInit)
-	{
-#if SDL_MAJOR_VERSION >= 2
-		// Tell SDL to catch event even if the windows isn't focussed
-		SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
-		if (SDL_Init(SDL_INIT_JOYSTICK|SDL_INIT_HAPTIC|SDL_INIT_EVENTS) < 0) return;
-		// WTF! Give me back the control of my system
-		struct sigaction action = { 0 };
-		action.sa_handler = SIG_DFL;
-		sigaction(SIGINT, &action, NULL);
-		sigaction(SIGTERM, &action, NULL);
-#else
-		if (SDL_Init(SDL_INIT_JOYSTICK) < 0) return;
-#endif
-		SDL_JoystickEventState(SDL_QUERY);
-		s_bSDLInit = true;
-	}
+    if ((SDL_WasInit(0) & flag) != flag) {
+        // Tell SDL to catch event even if the windows isn't focussed
+        SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
 
-	vector<GamePad*>::iterator it = vjoysticks.begin();
+        if (SDL_Init(flag) < 0)
+            return;
 
-	// Delete everything in the vector vjoysticks.
-	while (it != vjoysticks.end())
-	{
-		delete *it;
-		++it;
-	}
+        // WTF! Give me back the control of my system
+        struct sigaction action = {0};
+        action.sa_handler = SIG_DFL;
+        sigaction(SIGINT, &action, nullptr);
+        sigaction(SIGTERM, &action, nullptr);
 
-	vjoysticks.resize(SDL_NumJoysticks());
+        SDL_JoystickEventState(SDL_QUERY);
+        SDL_GameControllerEventState(SDL_QUERY);
+        SDL_EventState(SDL_CONTROLLERDEVICEADDED, SDL_ENABLE);
+        SDL_EventState(SDL_CONTROLLERDEVICEREMOVED, SDL_ENABLE);
 
-	for (int i = 0; i < (int)vjoysticks.size(); ++i)
-	{
-		vjoysticks[i] = new JoystickInfo();
-		vjoysticks[i]->Init(i);
-	}
+        { // Support as much Joystick as possible
+            GBytes *bytes = g_resource_lookup_data(onepad_res_get_resource(), "/onepad/res/game_controller_db.txt", G_RESOURCE_LOOKUP_FLAGS_NONE, nullptr);
+
+            size_t size = 0;
+            // SDL forget to add const for SDL_RWFromMem API...
+            void *data = const_cast<void *>(g_bytes_get_data(bytes, &size));
+
+            SDL_GameControllerAddMappingsFromRW(SDL_RWFromMem(data, size), 1);
+
+            g_bytes_unref(bytes);
+
+            // Add user mapping too
+            for (auto const &map : g_conf.sdl2_mapping)
+                SDL_GameControllerAddMapping(map.c_str());
+        }
+    }
+
+    vjoysticks.clear();
+
+    for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+        vjoysticks.push_back(std::unique_ptr<GamePad>(new JoystickInfo(i)));
+        // Something goes wrong in the init, let's drop it
+        if (!vjoysticks.back()->IsProperlyInitialized())
+            vjoysticks.pop_back();
+    }
 }
 
-void JoystickInfo::GenerateDefaultEffect()
+void JoystickInfo::Rumble(unsigned type, unsigned pad)
 {
-#if SDL_MAJOR_VERSION >= 2
-	for(int i=0;i<NB_EFFECT;i++)
-	{
-		SDL_HapticEffect effect;
-		memset( &effect, 0, sizeof(SDL_HapticEffect) ); // 0 is safe default
-		SDL_HapticDirection direction;
-		direction.type = SDL_HAPTIC_POLAR; // We'll be using polar direction encoding.
-		direction.dir[0] = 18000;
-		effect.periodic.direction = direction;
-		effect.periodic.period = 10;
-		effect.periodic.magnitude = (Sint16)(conf->get_ff_intensity()); // Effect at maximum instensity
-		effect.periodic.offset = 0;
-		effect.periodic.phase = 18000;
-		effect.periodic.length = 125; // 125ms feels quite near to original
-		effect.periodic.delay = 0;
-		effect.periodic.attack_length = 0;
-		effects[i] = effect;
-	}
-#endif
+    if (type >= m_effects_id.size())
+        return;
+
+    if (!(g_conf.pad_options[pad].forcefeedback))
+        return;
+
+    if (m_haptic == nullptr)
+        return;
+
+    int id = m_effects_id[type];
+    if (SDL_HapticRunEffect(m_haptic, id, 1) != 0) {
+        fprintf(stderr, "ERROR: Effect is not working! %s, id is %d\n", SDL_GetError(), id);
+    }
 }
 
-void JoystickInfo::Rumble(int type, int pad)
+JoystickInfo::~JoystickInfo()
 {
-	if (type > 1) return;
-	if ( !(conf->pad_options[pad].forcefeedback) ) return;
+    // Haptic must be closed before the joystick
+    if (m_haptic != nullptr) {
+        for (const auto &eid : m_effects_id) {
+            if (eid >= 0)
+                SDL_HapticDestroyEffect(m_haptic, eid);
+        }
 
-#if SDL_MAJOR_VERSION >= 2
-	if (haptic == NULL) return;
+        SDL_HapticClose(m_haptic);
+    }
 
-	if(first)
-	{// If done multiple times, device memory will be filled
-		first = 0;
-		GenerateDefaultEffect();
-		/** Sine and triangle are quite probably the best, don't change that lightly and if you do
-		 *	keep effects ordered by type
-		 **/
-		/** Effect for small motor **/
-		/** Sine seems to be the only effect making little motor from DS3/4 react
-		 *	Intensity has pretty much no effect either(which is coherent with what is explain in hid_sony driver
-		 **/
-		effects[0].type = SDL_HAPTIC_SINE;
-		effects_id[0] = SDL_HapticNewEffect(haptic, &effects[0]);
-		if(effects_id[0] < 0)
-		{
-			fprintf(stderr,"ERROR: Effect is not uploaded! %s, id is %d\n",SDL_GetError(),effects_id[0]);
-		}
-
-		/** Effect for big motor **/
-		effects[1].type = SDL_HAPTIC_TRIANGLE;
-		effects_id[1] = SDL_HapticNewEffect(haptic, &effects[1]);
-		if(effects_id[1] < 0)
-		{
-			fprintf(stderr,"ERROR: Effect is not uploaded! %s, id is %d\n",SDL_GetError(),effects_id[1]);
-		}
-	}
-
-	int id;
-	id = effects_id[type];
-	if(SDL_HapticRunEffect(haptic, id, 1) != 0)
-	{
-		fprintf(stderr,"ERROR: Effect is not working! %s, id is %d\n",SDL_GetError(),id);
-	}
+    if (m_controller != nullptr) {
+#if SDL_MINOR_VERSION >= 4
+        // Version before 2.0.4 are bugged, JoystickClose crashes randomly
+        // Note: GameControllerClose calls JoystickClose)
+        SDL_GameControllerClose(m_controller);
 #endif
+    }
 }
 
-void JoystickInfo::Destroy()
+JoystickInfo::JoystickInfo(int id)
+    : GamePad()
+    , m_controller(nullptr)
+    , m_haptic(nullptr)
+    , m_unique_id(0)
 {
-	if (joy != NULL)
-	{
-#if SDL_MAJOR_VERSION >= 2
-		// Haptic must be closed before the joystick
-		if (haptic != NULL) {
-			SDL_HapticClose(haptic);
-			haptic = NULL;
-		}
-#endif
+    SDL_Joystick *joy = nullptr;
+    m_effects_id.fill(-1);
+    // Values are hardcoded currently but it could be later extended to allow remapping of the buttons
+    m_pad_to_sdl[PAD_L2] = SDL_CONTROLLER_AXIS_TRIGGERLEFT;
+    m_pad_to_sdl[PAD_R2] = SDL_CONTROLLER_AXIS_TRIGGERRIGHT;
+    m_pad_to_sdl[PAD_L1] = SDL_CONTROLLER_BUTTON_LEFTSHOULDER;
+    m_pad_to_sdl[PAD_R1] = SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;
+    m_pad_to_sdl[PAD_TRIANGLE] = SDL_CONTROLLER_BUTTON_Y;
+    m_pad_to_sdl[PAD_CIRCLE] = SDL_CONTROLLER_BUTTON_B;
+    m_pad_to_sdl[PAD_CROSS] = SDL_CONTROLLER_BUTTON_A;
+    m_pad_to_sdl[PAD_SQUARE] = SDL_CONTROLLER_BUTTON_X;
+    m_pad_to_sdl[PAD_SELECT] = SDL_CONTROLLER_BUTTON_BACK;
+    m_pad_to_sdl[PAD_L3] = SDL_CONTROLLER_BUTTON_LEFTSTICK;
+    m_pad_to_sdl[PAD_R3] = SDL_CONTROLLER_BUTTON_RIGHTSTICK;
+    m_pad_to_sdl[PAD_START] = SDL_CONTROLLER_BUTTON_START;
+    m_pad_to_sdl[PAD_UP] = SDL_CONTROLLER_BUTTON_DPAD_UP;
+    m_pad_to_sdl[PAD_RIGHT] = SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
+    m_pad_to_sdl[PAD_DOWN] = SDL_CONTROLLER_BUTTON_DPAD_DOWN;
+    m_pad_to_sdl[PAD_LEFT] = SDL_CONTROLLER_BUTTON_DPAD_LEFT;
+    m_pad_to_sdl[PAD_L_UP] = SDL_CONTROLLER_AXIS_LEFTY;
+    m_pad_to_sdl[PAD_L_RIGHT] = SDL_CONTROLLER_AXIS_LEFTX;
+    m_pad_to_sdl[PAD_L_DOWN] = SDL_CONTROLLER_AXIS_LEFTY;
+    m_pad_to_sdl[PAD_L_LEFT] = SDL_CONTROLLER_AXIS_LEFTX;
+    m_pad_to_sdl[PAD_R_UP] = SDL_CONTROLLER_AXIS_RIGHTY;
+    m_pad_to_sdl[PAD_R_RIGHT] = SDL_CONTROLLER_AXIS_RIGHTX;
+    m_pad_to_sdl[PAD_R_DOWN] = SDL_CONTROLLER_AXIS_RIGHTY;
+    m_pad_to_sdl[PAD_R_LEFT] = SDL_CONTROLLER_AXIS_RIGHTX;
 
-#if SDL_MAJOR_VERSION >= 2
+    if (SDL_IsGameController(id)) {
+        m_controller = SDL_GameControllerOpen(id);
+        joy = SDL_GameControllerGetJoystick(m_controller);
+    } else {
+        joy = SDL_JoystickOpen(id);
+    }
+
+    if (joy == nullptr) {
+        fprintf(stderr, "onepad:failed to open joystick %d\n", id);
+        return;
+    }
+
+    // Collect Device Information
+    char guid[64];
+    SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(joy), guid, 64);
+    const char *devname = SDL_JoystickNameForIndex(id);
+
+    if (m_controller == nullptr) {
+        fprintf(stderr, "onepad: Joystick (%s,GUID:%s) isn't yet supported by the SDL2 game controller API\n"
+                        "Fortunately you can use AntiMicro (https://github.com/AntiMicro/antimicro) or Steam to configure your joystick\n"
+                        "The mapping can be stored in OnePAD2.ini as 'SDL2 = <...mapping description...>'\n"
+                        "Please report it to us (https://github.com/PCSX2/pcsx2/issues) so we can add your joystick to our internal database.",
+                devname, guid);
+
 #if SDL_MINOR_VERSION >= 4 // Version before 2.0.4 are bugged, JoystickClose crashes randomly
-		if (joy) SDL_JoystickClose(joy);
+        SDL_JoystickClose(joy);
 #endif
-#else
-		if (SDL_JoystickOpened(_id)) SDL_JoystickClose(joy);
-#endif
-		joy = NULL;
-	}
+
+        return;
+    }
+
+    std::hash<std::string> hash_me;
+    m_unique_id = hash_me(std::string(guid));
+
+    // Default haptic effect
+    SDL_HapticEffect effects[NB_EFFECT];
+    for (int i = 0; i < NB_EFFECT; i++) {
+        SDL_HapticEffect effect;
+        memset(&effect, 0, sizeof(SDL_HapticEffect)); // 0 is safe default
+        SDL_HapticDirection direction;
+        direction.type = SDL_HAPTIC_POLAR; // We'll be using polar direction encoding.
+        direction.dir[0] = 18000;
+        effect.periodic.direction = direction;
+        effect.periodic.period = 10;
+        effect.periodic.magnitude = (Sint16)(g_conf.get_ff_intensity()); // Effect at maximum instensity
+        effect.periodic.offset = 0;
+        effect.periodic.phase = 18000;
+        effect.periodic.length = 125; // 125ms feels quite near to original
+        effect.periodic.delay = 0;
+        effect.periodic.attack_length = 0;
+        /* Sine and triangle are quite probably the best, don't change that lightly and if you do
+         * keep effects ordered by type
+         */
+        if (i == 0) {
+            /* Effect for small motor */
+            /* Sine seems to be the only effect making little motor from DS3/4 react
+             * Intensity has pretty much no effect either(which is coherent with what is explain in hid_sony driver
+             */
+            effect.type = SDL_HAPTIC_SINE;
+        } else {
+            /** Effect for big motor **/
+            effect.type = SDL_HAPTIC_TRIANGLE;
+        }
+
+        effects[i] = effect;
+    }
+
+    if (SDL_JoystickIsHaptic(joy)) {
+        m_haptic = SDL_HapticOpenFromJoystick(joy);
+
+        for (auto &eid : m_effects_id) {
+            eid = SDL_HapticNewEffect(m_haptic, &effects[0]);
+            if (eid < 0) {
+                fprintf(stderr, "ERROR: Effect is not uploaded! %s\n", SDL_GetError());
+                return;
+            }
+        }
+    }
+
+    fprintf(stdout, "onepad: controller (%s) detected%s, GUID:%s\n",
+            devname, m_haptic ? " with rumble support" : "", guid);
+
+    m_no_error = true;
 }
 
-bool JoystickInfo::Init(int id)
+const char *JoystickInfo::GetName()
 {
-	Destroy();
-	_id = id;
-
-	joy = SDL_JoystickOpen(id);
-	if (joy == NULL)
-	{
-		PAD_LOG("failed to open joystick %d\n", id);
-		return false;
-	}
-
-	numaxes = SDL_JoystickNumAxes(joy);
-	numbuttons = SDL_JoystickNumButtons(joy);
-	numhats = SDL_JoystickNumHats(joy);
-#if SDL_MAJOR_VERSION >= 2
-	devname = SDL_JoystickName(joy);
-#else
-	devname = SDL_JoystickName(id);
-#endif
-
-	vaxisstate.resize(numaxes);
-	vbuttonstate.resize(numbuttons);
-	vhatstate.resize(numhats);
-
-	// Sixaxis, dualshock3 hack
-	// Most buttons are actually axes due to analog pressure support. Only the first 4 buttons
-	// are digital (select, start, l3, r3). To avoid conflict just forget the others.
-	// Keep the 4 hat buttons too (usb driver). (left pressure does not work with recent kernel). Moreover the pressure
-	// work sometime on half axis neg others time in fulll axis. So better keep them as button for the moment
-	u32 found_hack = devname.find(string("PLAYSTATION(R)3"));
-	// FIXME: people need to restart the plugin to take the option into account.
-	bool hack_enabled = (conf->pad_options[0].sixaxis_pressure) || (conf->pad_options[1].sixaxis_pressure);
-	if (found_hack != string::npos && numaxes > 4  && hack_enabled) {
-		numbuttons = 4; // (select, start, l3, r3)
-		// Enable this hack in bluetooth too. It avoid to restart the onepad gui
-		numbuttons += 4; // the 4 hat buttons
-	}
-
-#if SDL_MAJOR_VERSION >= 2
-	if ( haptic == NULL ) {
-		if (!SDL_JoystickIsHaptic(joy)) {
-			PAD_LOG("Haptic devices not supported!\n");
-		} else {
-			haptic = SDL_HapticOpenFromJoystick(joy);
-			first = true;
-		}
-	}
-#endif
-
-	//PAD_LOG("There are %d buttons, %d axises, and %d hats.\n", numbuttons, numaxes, numhats);
-	return true;
+    return SDL_JoystickName(SDL_GameControllerGetJoystick(m_controller));
 }
 
-void JoystickInfo::SaveState()
+size_t JoystickInfo::GetUniqueIdentifier()
 {
-	for (int i = 0; i < numbuttons; ++i)
-		SetButtonState(i, SDL_JoystickGetButton(joy, i));
-	for (int i = 0; i < numaxes; ++i)
-		SetAxisState(i, SDL_JoystickGetAxis(joy, i));
-	for (int i = 0; i < numhats; ++i)
-		SetHatState(i, SDL_JoystickGetHat(joy, i));
+    return m_unique_id;
 }
 
-bool JoystickInfo::TestForce(float strength=0.60)
+bool JoystickInfo::TestForce(float strength = 0.60)
 {
-#if SDL_MAJOR_VERSION >= 2
-	// This code just use standard rumble to check that SDL handles the pad correctly! --3kinox
-	if(haptic == NULL)
-		return false; // Otherwise, core dump!
-	SDL_HapticRumbleInit( haptic );
+    // This code just use standard rumble to check that SDL handles the pad correctly! --3kinox
+    if (m_haptic == nullptr)
+        return false; // Otherwise, core dump!
+
+    SDL_HapticRumbleInit(m_haptic);
+
     // Make the haptic pad rumble 60% strength for half a second, shoudld be enough for user to see if it works or not
-	if( SDL_HapticRumblePlay( haptic, strength, 400 ) != 0)
-	{
-		fprintf(stderr,"ERROR: Rumble is not working! %s\n",SDL_GetError());
-		return false;
-	}
+    if (SDL_HapticRumblePlay(m_haptic, strength, 400) != 0) {
+        fprintf(stderr, "ERROR: Rumble is not working! %s\n", SDL_GetError());
+        return false;
+    }
 
-#endif
-
-	return true;
+    return true;
 }
 
-bool JoystickInfo::PollButtons(u32 &pkey)
+int JoystickInfo::GetInput(gamePadValues input)
 {
-	// MAKE sure to look for changes in the state!!
-	for (int i = 0; i < GetNumButtons(); ++i)
-	{
-		int but = SDL_JoystickGetButton(GetJoy(), i);
-		if (but != GetButtonState(i))
-		{
-			// Pressure sensitive button are detected as both button (digital) and axes (analog). So better
-			// drop the button to emulate the pressure sensiblity of the ds2 :)
-			// Trick: detect the release of the button. It avoid all races condition between axes and buttons :)
-			// If the button support pressure it will be detected as an axis when it is pressed.
-			if (but) {
-				SetButtonState(i, but);
-				return false;
-			}
+    // Handle analog inputs which range from -32k to +32k. Range conversion is handled later in the controller
+    if (IsAnalogKey(input)) {
+        int value = SDL_GameControllerGetAxis(m_controller, (SDL_GameControllerAxis)m_pad_to_sdl[input]);
+        return (abs(value) > m_deadzone) ? value : 0;
+    }
 
+    // Handle triggers which range from 0 to +32k. They must be converted to 0-255 range
+    if (input == PAD_L2 || input == PAD_R2) {
+        int value = SDL_GameControllerGetAxis(m_controller, (SDL_GameControllerAxis)m_pad_to_sdl[input]);
+        return (value > m_deadzone) ? value / 128 : 0;
+    }
 
-			pkey = button_to_key(i);
-			return true;
-		}
-	}
-
-	return false;
+    // Remain buttons
+    int value = SDL_GameControllerGetButton(m_controller, (SDL_GameControllerButton)m_pad_to_sdl[input]);
+    return value ? 0xFF : 0; // Max pressure
 }
 
-bool JoystickInfo::PollAxes(u32 &pkey)
+void JoystickInfo::UpdateGamePadState()
 {
-	u32 found_hack = devname.find(string("PLAYSTATION(R)3"));
-
-	for (int i = 0; i < GetNumAxes(); ++i)
-	{
-		// Sixaxis, dualshock3 hack
-		if (found_hack != string::npos) {
-			// The analog mode of the hat button is quite erratic. Values can be in half- axis
-			// or full axis... So better keep them as button for the moment -- gregory
-			if (i >= 8 && i <= 11 && (conf->pad_options[pad].sixaxis_usb))
-				continue;
-			// Disable accelerometer
-			if ((i >= 4 && i <= 6))
-				continue;
-		}
-
-		s32 value = SDL_JoystickGetAxis(GetJoy(), i);
-		s32 old_value = GetAxisState(i);
-
-		if (abs(value - old_value) < 0x1000)
-			continue;
-
-		if (value != old_value)
-		{
-			PAD_LOG("Change in joystick %d: %d.\n", i, value);
-			// There are several kinds of axes
-			// Half+: 0 (release) -> 32768
-			// Half-: 0 (release) -> -32768
-			// Full (like dualshock 3): -32768 (release) ->32768
-			const s32 full_axis_ceil = -0x6FFF;
-			const s32 half_axis_ceil = 0x1FFF;
-
-			// Normally, old_value contains the release state so it can be used to detect the types of axis.
-			bool is_full_axis = (old_value < full_axis_ceil) ? true : false;
-
-			if ((!is_full_axis && abs(value) <= half_axis_ceil)
-					|| (is_full_axis && value <= full_axis_ceil))  // we don't want this
-			{
-				continue;
-			}
-
-			if ((!is_full_axis && abs(value) > half_axis_ceil)
-					|| (is_full_axis && value > full_axis_ceil))
-			{
-				bool sign = (value < 0);
-				pkey = axis_to_key(is_full_axis, sign, i);
-
-				return true;
-			}
-		}
-	}
-
-	return false;
-}
-
-bool JoystickInfo::PollHats(u32 &pkey)
-{
-	for (int i = 0; i < GetNumHats(); ++i)
-	{
-		int value = SDL_JoystickGetHat(GetJoy(), i);
-
-		if ((value != GetHatState(i)) && (value != SDL_HAT_CENTERED))
-		{
-			switch (value)
-			{
-				case SDL_HAT_UP:
-				case SDL_HAT_RIGHT:
-				case SDL_HAT_DOWN:
-				case SDL_HAT_LEFT:
-					pkey = hat_to_key(value, i);
-					PAD_LOG("Hat Pressed!");
-					return true;
-				default:
-					break;
-			}
-		}
-	}
-	return false;
-}
-
-int JoystickInfo::GetHat(int key_to_axis)
-{
-	return SDL_JoystickGetHat(GetJoy(),key_to_axis);
-}
-
-int JoystickInfo::GetButton(int key_to_button)
-{
-	return SDL_JoystickGetButton(GetJoy(),key_to_button);
-}
-
-int JoystickInfo::GetAxisFromKey(int pad, int index)
-{
-	return SDL_JoystickGetAxis(GetJoy(), key_to_axis(pad, index));
+    SDL_GameControllerUpdate();
 }

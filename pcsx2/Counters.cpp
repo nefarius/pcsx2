@@ -34,7 +34,6 @@
 using namespace Threading;
 
 extern u8 psxhblankgate;
-extern bool gsIsInterlaced;
 static const uint EECNT_FUTURE_TARGET = 0x10000000;
 static int gates = 0;
 
@@ -60,10 +59,7 @@ static void rcntWhold(int index, u32 value);
 
 static bool IsAnalogVideoMode()
 {
-	if (gsVideoMode == GS_VideoMode::PAL || gsVideoMode == GS_VideoMode::NTSC)
-		return true;
-
-	return false;
+	return (gsVideoMode == GS_VideoMode::PAL || gsVideoMode == GS_VideoMode::NTSC);
 }
 
 void rcntReset(int index) {
@@ -257,16 +253,17 @@ static const char* ReportVideoMode()
 {
 	switch (gsVideoMode)
 	{
-	case GS_VideoMode::PAL:        return "PAL";
-	case GS_VideoMode::NTSC:       return "NTSC";
-	case GS_VideoMode::VESA:       return "VESA";
-	case GS_VideoMode::BIOS:       return "BIOS";
-	case GS_VideoMode::HDTV_480P:  return "HDTV 480p";
-	case GS_VideoMode::HDTV_576P:  return "HDTV 576p";
-	case GS_VideoMode::HDTV_720P:  return "HDTV 720p";
-	case GS_VideoMode::HDTV_1080I: return "HDTV 1080i";
-	case GS_VideoMode::HDTV_1080P: return "HDTV 1080p";
-	default:                       return "Unknown";
+	case GS_VideoMode::PAL:          return "PAL";
+	case GS_VideoMode::NTSC:         return "NTSC";
+	case GS_VideoMode::DVD_NTSC:     return "DVD NTSC";
+	case GS_VideoMode::DVD_PAL:      return "DVD PAL";
+	case GS_VideoMode::VESA:         return "VESA";
+	case GS_VideoMode::SDTV_480P:    return "SDTV 480p";
+	case GS_VideoMode::SDTV_576P:    return "SDTV 576p";
+	case GS_VideoMode::HDTV_720P:    return "HDTV 720p";
+	case GS_VideoMode::HDTV_1080I:   return "HDTV 1080i";
+	case GS_VideoMode::HDTV_1080P:   return "HDTV 1080p";
+	default:                         return "Unknown";
 	}
 }
 
@@ -274,20 +271,21 @@ Fixed100 GetVerticalFrequency()
 {
 	switch (gsVideoMode)
 	{
-	case GS_VideoMode::Uninitialized: // SYSCALL instruction hasn't executed yet, give some temporary values.
+	case GS_VideoMode::Uninitialized: // SetGsCrt hasn't executed yet, give some temporary values.
 		return 60;
 	case GS_VideoMode::PAL:
+	case GS_VideoMode::DVD_PAL:
 		return EmuConfig.GS.FrameratePAL;
 	case GS_VideoMode::NTSC:
+	case GS_VideoMode::DVD_NTSC:
 		return EmuConfig.GS.FramerateNTSC;
-	case GS_VideoMode::HDTV_480P:
+	case GS_VideoMode::SDTV_480P:
 		return 59.94;
 	case GS_VideoMode::HDTV_1080P:
 	case GS_VideoMode::HDTV_1080I:
-	case GS_VideoMode::HDTV_576P:
 	case GS_VideoMode::HDTV_720P:
+	case GS_VideoMode::SDTV_576P:
 	case GS_VideoMode::VESA:
-	case GS_VideoMode::BIOS:
 		return 60;
 	default:
 		// Pass NTSC vertical frequency value when unknown video mode is detected.
@@ -315,35 +313,35 @@ u32 UpdateVSyncRate()
 		break;
 
 	case GS_VideoMode::PAL:
+	case GS_VideoMode::DVD_PAL:
 		isCustom = (EmuConfig.GS.FrameratePAL != 50.0);
 		scanlines = SCANLINES_TOTAL_PAL;
 		if (!gsIsInterlaced) scanlines += 3;
 		break;
 
 	case GS_VideoMode::NTSC:
+	case GS_VideoMode::DVD_NTSC:
 		isCustom = (EmuConfig.GS.FramerateNTSC != 59.94);
 		scanlines = SCANLINES_TOTAL_NTSC;
 		if (!gsIsInterlaced) scanlines += 1;
 		break;
 
-	case GS_VideoMode::HDTV_480P:
+	case GS_VideoMode::SDTV_480P:
+	case GS_VideoMode::SDTV_576P:
 	case GS_VideoMode::HDTV_1080P:
 	case GS_VideoMode::HDTV_1080I:
-	case GS_VideoMode::HDTV_576P:
 	case GS_VideoMode::HDTV_720P:
 	case GS_VideoMode::VESA:
-	case GS_VideoMode::BIOS:
 		scanlines = SCANLINES_TOTAL_NTSC;
 		break;
 
-	// Falls through to unknown when unidentified mode parameter of SetGsCrt is detected.
 	case GS_VideoMode::Unknown:
+	default:
+		// Falls through to default when unidentified mode parameter of SetGsCrt is detected.
 		// For Release builds, keep using the NTSC timing values when unknown video mode is detected.
 		// Assert will be triggered for debug/dev builds.
 		scanlines = SCANLINES_TOTAL_NTSC;
 		Console.Error("PCSX2-Counters: Unknown video mode detected");
-
-	default:
 		pxAssertDev(false , "Unknown video mode detected via SetGsCrt");
 	}
 
@@ -455,10 +453,8 @@ static __fi void VSyncStart(u32 sCycle)
 	if (!CSRreg.VSINT)
 	{
 		CSRreg.VSINT = true;
-		if (!(GSIMR&0x800))
-		{
+		if (!GSIMR.VSMSK)
 			gsIrq();
-		}
 	}
 
 	hwIntcIrq(INTC_VBLANK_S);
@@ -537,10 +533,8 @@ __fi void rcntUpdate_hScanline()
 		if (!CSRreg.HSINT)
 		{
 			CSRreg.HSINT = true;
-			if (!(GSIMR&0x400))
-			{
+			if (!GSIMR.HSMSK)
 				gsIrq();
-			}
 		}
 		if (gates) rcntEndGate(false, hsyncCounter.sCycle);
 		if (psxhblankgate) psxCheckEndGate16(0);

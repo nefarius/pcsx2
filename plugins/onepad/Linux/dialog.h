@@ -48,14 +48,14 @@
 // see onepad.h for more details about gamepad button id
 
 enum gui_buttons {
-    Analog = PAD_R_LEFT+1, // Analog button (not yet supported ?)
-    JoyL_config, // Left Joystick Configuration
-    JoyR_config, // Right Joystick Configuration
-    Gamepad_config, // Gamepad Configuration
-    Set_all, // Set all buttons
-    Apply, // Apply modifications without exit
-    Ok, // Apply modifications and exit
-    Cancel // Exit without apply modificatons
+    Analog = PAD_R_LEFT + 1, // Analog button (not yet supported ?)
+    JoyL_config,             // Left Joystick Configuration
+    JoyR_config,             // Right Joystick Configuration
+    Gamepad_config,          // Gamepad Configuration
+    Set_all,                 // Set all buttons
+    Apply,                   // Apply modifications without exit
+    Ok,                      // Apply modifications and exit
+    Cancel                   // Exit without apply modificatons
 };
 
 #define BUTTONS_LENGHT 32 // numbers of buttons on the gamepad
@@ -66,19 +66,17 @@ enum gui_buttons {
 class Dialog : public wxDialog
 {
     // Panels
-    opPanel* m_pan_tabs[GAMEPAD_NUMBER]; // Gamepad Tabs box
+    opPanel *m_pan_tabs[GAMEPAD_NUMBER]; // Gamepad Tabs box
     // Notebooks
-    wxNotebook* m_tab_gamepad; // Joysticks Tabs
+    wxNotebook *m_tab_gamepad; // Joysticks Tabs
     // Buttons
-    wxButton* m_bt_gamepad[GAMEPAD_NUMBER][BUTTONS_LENGHT]; // Joystick button use to modify the button mapping
+    wxButton *m_bt_gamepad[GAMEPAD_NUMBER][BUTTONS_LENGHT]; // Joystick button use to modify the button mapping
     // Contain all simulated key
     u32 m_simulatedKeys[GAMEPAD_NUMBER][MAX_KEYS];
     // Timer
     wxTimer m_time_update_gui;
     // Check if the gui must display feddback image
     bool m_pressed[GAMEPAD_NUMBER][NB_IMG];
-    // Map the key pressed with the feedback image id
-    std::map<u32,int> m_map_images[GAMEPAD_NUMBER];
 
     // methods
     void config_key(int, int);
@@ -86,8 +84,8 @@ class Dialog : public wxDialog
     void repopulate();
 
     // Events
-    void OnButtonClicked(wxCommandEvent&);
-    void JoystickEvent(wxTimerEvent&);
+    void OnButtonClicked(wxCommandEvent &);
+    void JoystickEvent(wxTimerEvent &);
 
 public:
     Dialog();

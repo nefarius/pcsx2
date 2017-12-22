@@ -46,20 +46,13 @@ namespace GSPng {
 			int m_pitch;
 			int m_compression;
 
-			Transaction(GSPng::Format fmt, const string& file, const uint8* image, int w, int h, int pitch, int compression);
+			Transaction(GSPng::Format fmt, const std::string& file, const uint8* image, int w, int h, int pitch, int compression);
 			~Transaction();
 	};
 
-    bool Save(GSPng::Format fmt, const string& file, uint8* image, int w, int h, int pitch, int compression, bool rb_swapped = false);
+    bool Save(GSPng::Format fmt, const std::string& file, uint8* image, int w, int h, int pitch, int compression, bool rb_swapped = false);
 
-	class Worker : public GSJobQueue<shared_ptr<Transaction>, 16 >
-	{
-		public:
-			Worker() {};
-			virtual ~Worker() {};
+    void Process(std::shared_ptr<Transaction> &item);
 
-			void Process(shared_ptr<Transaction>& item);
-
-			int GetPixels(bool reset) {return 0;}
-	};
+    using Worker = GSJobQueue<std::shared_ptr<Transaction>, 16>;
 }

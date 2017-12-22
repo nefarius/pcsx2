@@ -42,10 +42,10 @@ GSDevice9::GSDevice9()
 
 GSDevice9::~GSDevice9()
 {
-	for_each(m_om_bs.begin(), m_om_bs.end(), delete_second());
-	for_each(m_om_dss.begin(), m_om_dss.end(), delete_second());
-	for_each(m_ps_ss.begin(), m_ps_ss.end(), delete_second());
-	for_each(m_mskfix.begin(), m_mskfix.end(), delete_second());
+	for(auto &i : m_om_bs) delete i.second;
+	for(auto &i : m_om_dss) delete i.second;
+	for(auto &i : m_ps_ss) delete i.second;
+	for(auto &i : m_mskfix) delete i.second;
 
 	if(m_state.vs_cb) _aligned_free(m_state.vs_cb);
 	if(m_state.ps_cb) _aligned_free(m_state.ps_cb);
@@ -184,7 +184,7 @@ void GSDevice9::ForceValidMsaaConfig()
 	}
 };
 
-bool GSDevice9::Create(GSWnd* wnd)
+bool GSDevice9::Create(const std::shared_ptr<GSWnd> &wnd)
 {
 	if(!__super::Create(wnd))
 	{
@@ -265,7 +265,7 @@ bool GSDevice9::Create(GSWnd* wnd)
 	}
 	else
 	{
-		string s = format(
+		std::string s = format(
 			"Supported pixel shader version is too low!\n\nSupported: %d.%d\nNeeded: 2.0 or higher",
 			D3DSHADER_VERSION_MAJOR(m_d3dcaps.PixelShaderVersion), D3DSHADER_VERSION_MINOR(m_d3dcaps.PixelShaderVersion));
 
@@ -290,13 +290,13 @@ bool GSDevice9::Create(GSWnd* wnd)
 		D3DDECL_END()
 	};
 
-	vector<unsigned char> shader;
+	std::vector<char> shader;
 	theApp.LoadResource(IDR_CONVERT_FX, shader);
-	CompileShader((const char *)shader.data(), shader.size(), "convert.fx", "vs_main", nullptr, &m_convert.vs, il_convert, countof(il_convert), &m_convert.il);
+	CompileShader(shader.data(), shader.size(), "convert.fx", "vs_main", nullptr, &m_convert.vs, il_convert, countof(il_convert), &m_convert.il);
 
 	for(size_t i = 0; i < countof(m_convert.ps); i++)
 	{
-		CompileShader((const char *)shader.data(), shader.size(), "convert.fx", format("ps_main%d", i), nullptr, &m_convert.ps[i]);
+		CompileShader(shader.data(), shader.size(), "convert.fx", format("ps_main%d", i), nullptr, &m_convert.ps[i]);
 	}
 
 	m_convert.dss.DepthEnable = false;
@@ -328,7 +328,7 @@ bool GSDevice9::Create(GSWnd* wnd)
 	theApp.LoadResource(IDR_MERGE_FX, shader);
 	for(size_t i = 0; i < countof(m_merge.ps); i++)
 	{
-		CompileShader((const char *)shader.data(), shader.size(), "merge.fx", format("ps_main%d", i), nullptr, &m_merge.ps[i]);
+		CompileShader(shader.data(), shader.size(), "merge.fx", format("ps_main%d", i), nullptr, &m_merge.ps[i]);
 	}
 
 	m_merge.bs.BlendEnable = true;
@@ -345,7 +345,7 @@ bool GSDevice9::Create(GSWnd* wnd)
 	theApp.LoadResource(IDR_INTERLACE_FX, shader);
 	for(size_t i = 0; i < countof(m_interlace.ps); i++)
 	{
-		CompileShader((const char *)shader.data(), shader.size(), "interlace.fx", format("ps_main%d", i), nullptr, &m_interlace.ps[i]);
+		CompileShader(shader.data(), shader.size(), "interlace.fx", format("ps_main%d", i), nullptr, &m_interlace.ps[i]);
 	}
 
 	// Shade Boost
@@ -354,7 +354,7 @@ bool GSDevice9::Create(GSWnd* wnd)
 	int ShadeBoost_Brightness = theApp.GetConfigI("ShadeBoost_Brightness");
 	int ShadeBoost_Saturation = theApp.GetConfigI("ShadeBoost_Saturation");
 
-	string str[3];
+	std::string str[3];
 
 	str[0] = format("%d", ShadeBoost_Saturation);
 	str[1] = format("%d", ShadeBoost_Brightness);
@@ -369,7 +369,7 @@ bool GSDevice9::Create(GSWnd* wnd)
 	};
 
 	theApp.LoadResource(IDR_SHADEBOOST_FX, shader);
-	CompileShader((const char *)shader.data(), shader.size(), "shadeboost.fx", "ps_main", macro, &m_shadeboost.ps);
+	CompileShader(shader.data(), shader.size(), "shadeboost.fx", "ps_main", macro, &m_shadeboost.ps);
 
 	// create shader layout
 
@@ -571,11 +571,11 @@ void GSDevice9::Flip()
 	}
 }
 
-void GSDevice9::SetVSync(bool enable)
+void GSDevice9::SetVSync(int vsync)
 {
-	if(m_vsync == enable) return;
+	if(m_vsync == vsync) return;
 
-	__super::SetVSync(enable);
+	__super::SetVSync(vsync);
 
 	// Clever trick:  Delete the backbuffer, so that the next Present will fail and
 	// cause a DXDevice9::Reset call, which re-creates the backbuffer with current
@@ -668,13 +668,13 @@ void GSDevice9::ClearRenderTarget(GSTexture* rt, uint32 c)
 	m_dev->SetRenderTarget(0, surface);
 }
 
-void GSDevice9::ClearDepth(GSTexture* t, float c)
+void GSDevice9::ClearDepth(GSTexture* t)
 {
 	if (!t) return;
 	CComPtr<IDirect3DSurface9> dssurface;
 	m_dev->GetDepthStencilSurface(&dssurface);
 	m_dev->SetDepthStencilSurface(*(GSTexture9*)t);
-	m_dev->Clear(0, NULL, D3DCLEAR_ZBUFFER, 0, c, 0);
+	m_dev->Clear(0, NULL, D3DCLEAR_ZBUFFER, 0, 0.0f, 0);
 	m_dev->SetDepthStencilSurface(dssurface);
 }
 
@@ -718,17 +718,11 @@ GSTexture* GSDevice9::CreateSurface(int type, int w, int h, bool msaa, int forma
 	if(surface)
 	{
 		t = new GSTexture9(surface);
-		if (t == NULL) {
-			throw GSDXErrorOOM();
-		}
 	}
 
 	if(texture)
 	{
 		t = new GSTexture9(texture);
-		if (t == NULL) {
-			throw GSDXErrorOOM();
-		}
 	}
 
 	if(t)
@@ -739,9 +733,13 @@ GSTexture* GSDevice9::CreateSurface(int type, int w, int h, bool msaa, int forma
 			ClearRenderTarget(t, 0);
 			break;
 		case GSTexture::DepthStencil:
-			ClearDepth(t, 0);
+			ClearDepth(t);
 			break;
 		}
+	}
+	else
+	{
+		throw std::bad_alloc();
 	}
 
 	return t;
@@ -906,8 +904,11 @@ void GSDevice9::StretchRect(GSTexture* sTex, const GSVector4& sRect, GSTexture* 
 	EndScene();
 }
 
-void GSDevice9::DoMerge(GSTexture* sTex[2], GSVector4* sRect, GSTexture* dTex, GSVector4* dRect, bool slbg, bool mmod, const GSVector4& c)
+void GSDevice9::DoMerge(GSTexture* sTex[3], GSVector4* sRect, GSTexture* dTex, GSVector4* dRect, const GSRegPMODE& PMODE, const GSRegEXTBUF& EXTBUF, const GSVector4& c)
 {
+	bool slbg = PMODE.SLBG;
+	bool mmod = PMODE.MMOD;
+
 	ClearRenderTarget(dTex, c);
 
 	if(sTex[1] && !slbg)
@@ -995,9 +996,9 @@ void GSDevice9::InitFXAA()
 	if (!FXAA_Compiled)
 	{
 		try {
-			vector<unsigned char> shader;
+			std::vector<char> shader;
 			theApp.LoadResource(IDR_FXAA_FX, shader);
-			CompileShader((const char *)shader.data(), shader.size(), "fxaa.fx", "ps_main", nullptr, &m_fxaa.ps);
+			CompileShader(shader.data(), shader.size(), "fxaa.fx", "ps_main", nullptr, &m_fxaa.ps);
 		}
 		catch (GSDXRecoverableError) {
 			printf("GSdx: Failed to compile fxaa shader.\n");
@@ -1453,9 +1454,9 @@ void GSDevice9::OMSetRenderTargets(GSTexture* rt, GSTexture* ds, const GSVector4
 	}
 }
 
-void GSDevice9::CompileShader(const char *source, size_t size, const char *filename, const string& entry, const D3D_SHADER_MACRO* macro, IDirect3DVertexShader9** vs, const D3DVERTEXELEMENT9* layout, int count, IDirect3DVertexDeclaration9** il)
+void GSDevice9::CompileShader(const char *source, size_t size, const char *filename, const std::string& entry, const D3D_SHADER_MACRO* macro, IDirect3DVertexShader9** vs, const D3DVERTEXELEMENT9* layout, int count, IDirect3DVertexDeclaration9** il)
 {
-	vector<D3D_SHADER_MACRO> m;
+	std::vector<D3D_SHADER_MACRO> m;
 
 	PrepareShaderMacro(m, macro);
 
@@ -1489,7 +1490,7 @@ void GSDevice9::CompileShader(const char *source, size_t size, const char *filen
 	}
 }
 
-void GSDevice9::CompileShader(const char *source, size_t size, const char *filename, const string& entry, const D3D_SHADER_MACRO* macro, IDirect3DPixelShader9** ps)
+void GSDevice9::CompileShader(const char *source, size_t size, const char *filename, const std::string& entry, const D3D_SHADER_MACRO* macro, IDirect3DPixelShader9** ps)
 {
 	uint32 flags = 0;
 
@@ -1502,7 +1503,7 @@ void GSDevice9::CompileShader(const char *source, size_t size, const char *filen
 		flags |= D3DCOMPILE_SKIP_VALIDATION;
 	}
 
-	vector<D3D_SHADER_MACRO> m;
+	std::vector<D3D_SHADER_MACRO> m;
 
 	PrepareShaderMacro(m, macro);
 

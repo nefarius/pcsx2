@@ -9,6 +9,9 @@ layout(location = 5) in uint  i_z;
 layout(location = 6) in uvec2 i_uv;
 layout(location = 7) in vec4  i_f;
 
+#if !defined(BROKEN_DRIVER) && defined(GL_ARB_enhanced_layouts) && GL_ARB_enhanced_layouts
+layout(location = 0)
+#endif
 out SHADER
 {
     vec4 t_float;
@@ -21,16 +24,22 @@ const float exp_min32 = exp2(-32.0f);
 
 void texture_coord()
 {
-    vec2 uv = vec2(i_uv);
+    vec2 uv = vec2(i_uv) - TextureOffset.xy;
+    vec2 st = i_st - TextureOffset.xy;
 
     // Float coordinate
-    VSout.t_float.xy = i_st;
+    VSout.t_float.xy = st;
     VSout.t_float.w  = i_q;
 
     // Integer coordinate => normalized
     VSout.t_int.xy = uv * TextureScale;
+#if VS_INT_FST == 1
+    // Some games uses float coordinate for post-processing effect
+    VSout.t_int.zw = st / TextureScale;
+#else
     // Integer coordinate => integral
     VSout.t_int.zw = uv;
+#endif
 }
 
 void vs_main()
@@ -61,6 +70,9 @@ void vs_main()
 
 #ifdef GEOMETRY_SHADER
 
+#if !defined(BROKEN_DRIVER) && defined(GL_ARB_enhanced_layouts) && GL_ARB_enhanced_layouts
+layout(location = 0)
+#endif
 in SHADER
 {
     vec4 t_float;
@@ -69,6 +81,9 @@ in SHADER
     flat vec4 fc;
 } GSin[];
 
+#if !defined(BROKEN_DRIVER) && defined(GL_ARB_enhanced_layouts) && GL_ARB_enhanced_layouts
+layout(location = 0)
+#endif
 out SHADER
 {
     vec4 t_float;
@@ -84,7 +99,7 @@ struct vertex
     vec4 c;
 };
 
-void out_vertex(in vertex v)
+void out_vertex(in vec4 position, in vertex v)
 {
     GSout.t_float  = v.t_float;
     GSout.t_int    = v.t_int;
@@ -95,6 +110,7 @@ void out_vertex(in vertex v)
 #else
     GSout.fc       = GSin[1].fc;
 #endif
+    gl_Position = position;
     gl_PrimitiveID = gl_PrimitiveIDIn;
     EmitVertex();
 }
@@ -104,36 +120,83 @@ layout(points) in;
 #else
 layout(lines) in;
 #endif
-layout(triangle_strip, max_vertices = 6) out;
+layout(triangle_strip, max_vertices = 4) out;
+
+#if GS_POINT == 1
+
+void gs_main()
+{
+    // Transform a point to a NxN sprite
+    vertex point = vertex(GSin[0].t_float, GSin[0].t_int, GSin[0].c);
+
+    // Get new position
+    vec4 lt_p = gl_in[0].gl_Position;
+    vec4 rb_p = gl_in[0].gl_Position + vec4(PointSize.x, PointSize.y, 0.0f, 0.0f);
+    vec4 lb_p = rb_p;
+    vec4 rt_p = rb_p;
+    lb_p.x    = lt_p.x;
+    rt_p.y    = lt_p.y;
+
+    out_vertex(lt_p, point);
+
+    out_vertex(lb_p, point);
+
+    out_vertex(rt_p, point);
+
+    out_vertex(rb_p, point);
+
+    EndPrimitive();
+}
+
+#elif GS_LINE == 1
+
+void gs_main()
+{
+    // Transform a line to a thick line-sprite
+    vertex right = vertex(GSin[1].t_float, GSin[1].t_int, GSin[1].c);
+    vertex left  = vertex(GSin[0].t_float, GSin[0].t_int, GSin[0].c);
+    vec4 lt_p = gl_in[0].gl_Position;
+    vec4 rt_p = gl_in[1].gl_Position;
+
+    // Potentially there is faster math
+    vec2 line_vector = normalize(rt_p.xy - lt_p.xy);
+    vec2 line_normal = vec2(line_vector.y, -line_vector.x);
+    vec2 line_width  = line_normal * PointSize;
+
+    vec4 lb_p = gl_in[0].gl_Position + vec4(line_width, 0.0f, 0.0f);
+    vec4 rb_p = gl_in[1].gl_Position + vec4(line_width, 0.0f, 0.0f);
+
+    out_vertex(lt_p, left);
+
+    out_vertex(lb_p, left);
+
+    out_vertex(rt_p, right);
+
+    out_vertex(rb_p, right);
+
+    EndPrimitive();
+}
+
+#else
 
 void gs_main()
 {
     // left top     => GSin[0];
     // right bottom => GSin[1];
-#if GS_POINT == 1
-    vertex rb = vertex(GSin[0].t_float, GSin[0].t_int, GSin[0].c);
-#else
     vertex rb = vertex(GSin[1].t_float, GSin[1].t_int, GSin[1].c);
-#endif
     vertex lt = vertex(GSin[0].t_float, GSin[0].t_int, GSin[0].c);
 
-#if GS_POINT == 1
-    vec4 rb_p = gl_in[0].gl_Position + vec4(PointSize.x, PointSize.y, 0.0f, 0.0f);
-#else
     vec4 rb_p = gl_in[1].gl_Position;
-#endif
     vec4 lb_p = rb_p;
     vec4 rt_p = rb_p;
     vec4 lt_p = gl_in[0].gl_Position;
 
-#if GS_POINT == 0
     // flat depth
     lt_p.z = rb_p.z;
     // flat fog and texture perspective
     lt.t_float.zw = rb.t_float.zw;
     // flat color
     lt.c = rb.c;
-#endif
 
     // Swap texture and position coordinate
     vertex lb    = rb;
@@ -148,27 +211,17 @@ void gs_main()
     rt.t_int.y   = lt.t_int.y;
     rt.t_int.w   = lt.t_int.w;
 
-    // Triangle 1
-    gl_Position = lt_p;
-    out_vertex(lt);
+    out_vertex(lt_p, lt);
 
-    gl_Position = lb_p;
-    out_vertex(lb);
+    out_vertex(lb_p, lb);
 
-    gl_Position = rt_p;
-    out_vertex(rt);
-    EndPrimitive();
+    out_vertex(rt_p, rt);
 
-    // Triangle 2
-    gl_Position = lb_p;
-    out_vertex(lb);
+    out_vertex(rb_p, rb);
 
-    gl_Position = rt_p;
-    out_vertex(rt);
-
-    gl_Position = rb_p;
-    out_vertex(rb);
     EndPrimitive();
 }
+
+#endif
 
 #endif

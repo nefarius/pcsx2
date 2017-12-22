@@ -182,7 +182,7 @@ struct ScopedThreadCancelDisable
 		pthread_setcancelstate( PTHREAD_CANCEL_DISABLE, &oldstate );
 	}
 	
-	~ScopedThreadCancelDisable() throw()
+	~ScopedThreadCancelDisable()
 	{
 		int oldstate;
 		pthread_setcancelstate( PTHREAD_CANCEL_ENABLE, &oldstate );
@@ -300,7 +300,7 @@ void pxEvtQueue::PostIdleEvent( SysExecEvent* evt )
 
 	pxEvtLog.Write( this, evt, pxsFmt(L"Posting event! (pending=%d, idle=%d) [idle]", m_pendingEvents.size(), m_idleEvents.size()) );
 
-	if( m_pendingEvents.size() == 0)
+	if( m_pendingEvents.empty() )
 	{
 		m_pendingEvents.push_back( evt );
 		m_wakeup.Post();
@@ -389,64 +389,6 @@ void pxEvtQueue::Idle()
 void pxEvtQueue::SetActiveThread()
 {
 	m_OwnerThreadId = wxThread::GetCurrentId();
-}
-
-// --------------------------------------------------------------------------------------
-//  WaitingForThreadedTaskDialog
-// --------------------------------------------------------------------------------------
-// Note: currently unused (legacy code).  May be utilized at a later date, so I'm leaving
-// it in (for now!)
-//
-class WaitingForThreadedTaskDialog
-	: public wxDialogWithHelpers
-{
-private:
-	typedef wxDialogWithHelpers _parent;
-
-protected:
-	pxThread*	m_thread;
-	
-public:
-	WaitingForThreadedTaskDialog( pxThread* thr, wxWindow* parent, const wxString& title, const wxString& content );
-	virtual ~WaitingForThreadedTaskDialog() throw() {}
-
-protected:
-	void OnCancel_Clicked( wxCommandEvent& evt );
-	void OnTerminateApp_Clicked( wxCommandEvent& evt );
-};
-
-// --------------------------------------------------------------------------------------
-//  WaitingForThreadedTaskDialog Implementations
-// --------------------------------------------------------------------------------------
-WaitingForThreadedTaskDialog::WaitingForThreadedTaskDialog( pxThread* thr, wxWindow* parent, const wxString& title, const wxString& content )
-	: wxDialogWithHelpers( parent, title )
-{
-	SetMinWidth( 500 );
-
-	m_thread		= thr;
-	
-	*this += Text( content )	| StdExpand();
-	*this += 15;
-	*this += Heading(_("Press Cancel to attempt to cancel the action."));
-	*this += Heading(AddAppName(_("Press Terminate to kill %s immediately.")));
-	
-	*this += new wxButton( this, wxID_CANCEL );
-	*this += new wxButton( this, wxID_ANY, _("Terminate App") );
-}
-
-void WaitingForThreadedTaskDialog::OnCancel_Clicked( wxCommandEvent& evt )
-{
-	evt.Skip();
-	if( !m_thread ) return;
-	m_thread->Cancel( false );
-	
-	if( wxWindow* cancel = FindWindowById( wxID_CANCEL ) ) cancel->Disable();
-}
-
-void WaitingForThreadedTaskDialog::OnTerminateApp_Clicked( wxCommandEvent& evt )
-{
-	// (note: SIGTERM is a "handled" kill that performs shutdown stuff, which typically just crashes anyway)
-	wxKill( wxGetProcessId(), wxSIGKILL );
 }
 
 // --------------------------------------------------------------------------------------

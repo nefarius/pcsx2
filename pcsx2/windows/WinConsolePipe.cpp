@@ -45,7 +45,7 @@ public:
 		m_name = (m_color == Color_Red) ? L"Redirect_Stderr" : L"Redirect_Stdout";
 	}
 
-	virtual ~WinPipeThread() throw()
+	virtual ~WinPipeThread()
 	{
 		_parent::Cancel();
 	}
@@ -138,9 +138,9 @@ protected:
 
 public:
 	WinPipeRedirection( FILE* stdstream );
-	virtual ~WinPipeRedirection() throw();
+	virtual ~WinPipeRedirection();
 
-	void Cleanup() throw();
+	void Cleanup() noexcept;
 };
 
 WinPipeRedirection::WinPipeRedirection( FILE* stdstream )
@@ -200,7 +200,7 @@ WinPipeRedirection::~WinPipeRedirection()
 	Cleanup();
 }
 
-void WinPipeRedirection::Cleanup() throw()
+void WinPipeRedirection::Cleanup() noexcept
 {
 	// Cleanup Order Notes:
 	//  * The redirection thread is most likely blocking on ReadFile(), so we can't Cancel yet, lest we deadlock --

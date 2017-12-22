@@ -613,10 +613,11 @@ bool wxTopLevelWindowMSW::Create(wxWindow *parent,
         memset(dlgTemplate, 0, dlgsize);
 
         // these values are arbitrary, they won't be used normally anyhow
-        dlgTemplate->x  = 34;
+        const LONG baseUnits = ::GetDialogBaseUnits();
+        dlgTemplate->x = 34;
         dlgTemplate->y  = 22;
-        dlgTemplate->cx = 144;
-        dlgTemplate->cy = 75;
+        dlgTemplate->cx = ::MulDiv(sizeReal.x, 4, LOWORD(baseUnits));
+        dlgTemplate->cy = ::MulDiv(sizeReal.y, 8, HIWORD(baseUnits));
 
         // reuse the code in MSWGetStyle() but correct the results slightly for
         // the dialog
@@ -1110,7 +1111,8 @@ bool wxTopLevelWindowMSW::ShowFullScreen(bool show, long style)
         // affects stretch mode, but most people have 16:9 monitors, so in
         // general the widescreen 16:9 mode is also affected). Let's remove the
         // window style.
-        // newStyle |= WS_POPUP;
+        if (style & WS_POPUP)
+            newStyle |= WS_POPUP;
 
         // change our window style to be compatible with full-screen mode
         ::SetWindowLong(GetHwnd(), GWL_STYLE, newStyle);

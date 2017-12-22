@@ -29,7 +29,7 @@
 #include "../DebugTools/SymbolMap.h"
 
 #include "Utilities/PageFaultSource.h"
-#include "Utilities/TlsVariable.inl"
+#include "Utilities/Threading.h"
 
 #ifdef __WXMSW__
 #	include <wx/msw/wrapwin.h>
@@ -53,7 +53,7 @@ SysCoreThread::SysCoreThread()
 	m_hasActiveMachine		= false;
 }
 
-SysCoreThread::~SysCoreThread() throw()
+SysCoreThread::~SysCoreThread()
 {
 	try {
 		SysCoreThread::Cancel();
@@ -70,10 +70,7 @@ void SysCoreThread::Cancel( bool isBlocking )
 bool SysCoreThread::Cancel( const wxTimeSpan& span )
 {
 	m_hasActiveMachine = false;
-	if( _parent::Cancel( span ) )
-		return true;
-
-	return false;
+	return _parent::Cancel( span );
 }
 
 void SysCoreThread::OnStart()

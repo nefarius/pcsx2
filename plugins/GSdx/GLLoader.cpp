@@ -21,6 +21,7 @@
 #include "stdafx.h"
 #include "GLLoader.h"
 #include "GSdx.h"
+#include "GS.h"
 
 PFNGLBLENDCOLORPROC                    gl_BlendColor                       = NULL;
 
@@ -139,6 +140,7 @@ PFNGLCOPYTEXTURESUBIMAGE2DPROC         glCopyTextureSubImage2D             = NUL
 PFNGLBINDTEXTUREUNITPROC               glBindTextureUnit                   = NULL;
 PFNGLGETTEXTUREIMAGEPROC               glGetTextureImage                   = NULL;
 PFNGLTEXTUREPARAMETERIPROC             glTextureParameteri                 = NULL;
+PFNGLGENERATETEXTUREMIPMAPPROC         glGenerateTextureMipmap             = NULL;
 
 PFNGLCREATEFRAMEBUFFERSPROC            glCreateFramebuffers                = NULL;
 PFNGLCLEARNAMEDFRAMEBUFFERFVPROC       glClearNamedFramebufferfv           = NULL;
@@ -166,17 +168,15 @@ PFNGLCLIPCONTROLPROC                   glClipControl                       = NUL
 PFNGLTEXTUREBARRIERPROC                glTextureBarrier                    = NULL;
 PFNGLGETTEXTURESUBIMAGEPROC            glGetTextureSubImage                = NULL;
 
+#ifdef _WIN32
+PFNGLACTIVETEXTUREPROC                 gl_ActiveTexture                    = NULL;
+PFNGLTEXSTORAGE2DPROC                  glTexStorage2D                      = NULL;
+PFNGLGENPROGRAMPIPELINESPROC           glGenProgramPipelines               = NULL;
+PFNGLGENSAMPLERSPROC                   glGenSamplers                       = NULL;
+PFNGLGENERATEMIPMAPPROC                glGenerateMipmap                    = NULL;
+#endif
+
 namespace ReplaceGL {
-	void APIENTRY BlendEquationSeparateiARB(GLuint buf, GLenum modeRGB, GLenum modeAlpha)
-	{
-		glBlendEquationSeparate(modeRGB, modeAlpha);
-	}
-
-	void APIENTRY BlendFuncSeparateiARB(GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha)
-	{
-		glBlendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha);
-	}
-
 	void APIENTRY ScissorIndexed(GLuint index, GLint left, GLint bottom, GLsizei width, GLsizei height)
 	{
 		glScissor(left, bottom, width, height);
@@ -186,25 +186,100 @@ namespace ReplaceGL {
 	{
 		glViewport(GLint(x), GLint(y), GLsizei(w), GLsizei(h));
 	}
+
+	void APIENTRY TextureBarrier()
+	{
+	}
+
 }
+
+#ifdef _WIN32
+namespace Emulate_DSA {
+	// Texture entry point
+	void APIENTRY BindTextureUnit(GLuint unit, GLuint texture) {
+		gl_ActiveTexture(GL_TEXTURE0 + unit);
+		glBindTexture(GL_TEXTURE_2D, texture);
+	}
+
+	void APIENTRY CreateTexture(GLenum target, GLsizei n, GLuint *textures) {
+		glGenTextures(1, textures);
+	}
+
+	void APIENTRY TextureStorage(GLuint texture, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height) {
+		BindTextureUnit(7, texture);
+		glTexStorage2D(GL_TEXTURE_2D, levels, internalformat, width, height);
+	}
+
+	void APIENTRY TextureSubImage(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const void *pixels) {
+		BindTextureUnit(7, texture);
+		glTexSubImage2D(GL_TEXTURE_2D, level, xoffset, yoffset, width, height, format, type, pixels);
+	}
+
+	void APIENTRY CopyTextureSubImage(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height) {
+		BindTextureUnit(7, texture);
+		glCopyTexSubImage2D(GL_TEXTURE_2D, level, xoffset, yoffset, x, y, width, height);
+	}
+
+	void APIENTRY GetTexureImage(GLuint texture, GLint level, GLenum format, GLenum type, GLsizei bufSize, void *pixels) {
+		BindTextureUnit(7, texture);
+		glGetTexImage(GL_TEXTURE_2D, level, format, type, pixels);
+	}
+
+	void APIENTRY TextureParameteri (GLuint texture, GLenum pname, GLint param) {
+		BindTextureUnit(7, texture);
+		glTexParameteri(GL_TEXTURE_2D, pname, param);
+	}
+
+	void APIENTRY GenerateTextureMipmap(GLuint texture) {
+		BindTextureUnit(7, texture);
+		glGenerateMipmap(GL_TEXTURE_2D);
+	}
+
+	// Misc entry point
+	// (only purpose is to have a consistent API otherwise it is useless)
+	void APIENTRY CreateProgramPipelines(GLsizei n, GLuint *pipelines) {
+		glGenProgramPipelines(n, pipelines);
+	}
+
+	void APIENTRY CreateSamplers(GLsizei n, GLuint *samplers) {
+		glGenSamplers(n, samplers);
+	}
+
+	// Replace function pointer to emulate DSA behavior
+	void Init() {
+		fprintf(stderr, "DSA is not supported. Expect slower performance\n");
+		glBindTextureUnit             = BindTextureUnit;
+		glCreateTextures              = CreateTexture;
+		glTextureStorage2D            = TextureStorage;
+		glTextureSubImage2D           = TextureSubImage;
+		glCopyTextureSubImage2D       = CopyTextureSubImage;
+		glGetTextureImage             = GetTexureImage;
+		glTextureParameteri           = TextureParameteri;
+
+		glCreateProgramPipelines      = CreateProgramPipelines;
+		glCreateSamplers              = CreateSamplers;
+	}
+}
+#endif
 
 namespace GLLoader {
 
-	bool legacy_fglrx_buggy_driver = false;
-	bool fglrx_buggy_driver    = false;
-	bool mesa_amd_buggy_driver = false;
-	bool nvidia_buggy_driver   = false;
-	bool intel_buggy_driver    = false;
-	bool in_replayer           = false;
-	bool buggy_sso_dual_src    = false;
+	bool s_first_load = true;
+
+	bool amd_legacy_buggy_driver = false;
+	bool vendor_id_amd      = false;
+	bool vendor_id_nvidia   = false;
+	bool vendor_id_intel    = false;
+	bool mesa_driver        = false;
+	bool in_replayer        = false;
+	bool buggy_sso_dual_src = false;
 
 
 	bool found_geometry_shader = true; // we require GL3.3 so geometry must be supported by default
 	bool found_GL_EXT_texture_filter_anisotropic = false;
-	bool found_GL_ARB_clear_texture = false; // Miss AMD Mesa (otherwise seems SW)
+	bool found_GL_ARB_clear_texture = false;
 	bool found_GL_ARB_get_texture_sub_image = false; // Not yet used
 	// DX11 GPU
-	bool found_GL_ARB_draw_buffers_blend = false; // Not supported on AMD R600 (80 nm class chip, HD2900). Nvidia requires FERMI. Intel SB
 	bool found_GL_ARB_gpu_shader5 = false; // Require IvyBridge
 	bool found_GL_ARB_shader_image_load_store = false; // Intel IB. Nvidia/AMD miss Mesa implementation.
 	bool found_GL_ARB_viewport_array = false; // Intel IB. AMD/NVIDIA DX10
@@ -231,10 +306,12 @@ namespace GLLoader {
 			return found;
 		}
 
-		if (!found) {
-			fprintf(stdout, "INFO: %s is NOT SUPPORTED\n", name.c_str());
-		} else {
-			fprintf(stdout, "INFO: %s is available\n", name.c_str());
+		if (s_first_load) {
+			if (!found) {
+				fprintf(stdout, "INFO: %s is NOT SUPPORTED\n", name.c_str());
+			} else {
+				fprintf(stdout, "INFO: %s is available\n", name.c_str());
+			}
 		}
 
 		std::string opt("override_");
@@ -259,27 +336,36 @@ namespace GLLoader {
 		while (s[v] != '\0' && s[v-1] != ' ') v++;
 
 		const char* vendor = (const char*)glGetString(GL_VENDOR);
-		fprintf(stdout, "OpenGL information. GPU: %s. Vendor: %s. Driver: %s\n", glGetString(GL_RENDERER), vendor, &s[v]);
+		if (s_first_load)
+			fprintf(stdout, "OpenGL information. GPU: %s. Vendor: %s. Driver: %s\n", glGetString(GL_RENDERER), vendor, &s[v]);
 
 		// Name changed but driver is still bad!
-		if (strstr(vendor, "ATI") || strstr(vendor, "Advanced Micro Devices"))
-			fglrx_buggy_driver = true;
-		if (fglrx_buggy_driver && strstr((const char*)&s[v], " 15.")) // blacklist all 2015 drivers
-			legacy_fglrx_buggy_driver = true;
+		if (strstr(vendor, "Advanced Micro Devices") || strstr(vendor, "ATI Technologies Inc.") || strstr(vendor, "ATI"))
+			vendor_id_amd = true;
+		/*if (vendor_id_amd && (
+				strstr((const char*)&s[v], " 10.") || // Blacklist all 2010 AMD drivers.
+				strstr((const char*)&s[v], " 11.") || // Blacklist all 2011 AMD drivers.
+				strstr((const char*)&s[v], " 12.") || // Blacklist all 2012 AMD drivers.
+				strstr((const char*)&s[v], " 13.") || // Blacklist all 2013 AMD drivers.
+				strstr((const char*)&s[v], " 14.") || // Blacklist all 2014 AMD drivers.
+				strstr((const char*)&s[v], " 15.") || // Blacklist all 2015 AMD drivers.
+				strstr((const char*)&s[v], " 16.") || // Blacklist all 2016 AMD drivers.
+				strstr((const char*)&s[v], " 17.") // Blacklist all 2017 AMD drivers for now.
+				))
+			amd_legacy_buggy_driver = true;
+		*/
 		if (strstr(vendor, "NVIDIA Corporation"))
-			nvidia_buggy_driver = true;
-		if (strstr(vendor, "Intel"))
-			intel_buggy_driver = true;
-		if (strstr(vendor, "X.Org") || strstr(vendor, "nouveau")) // Note: it might actually catch nouveau too, but bugs are likely to be the same anyway
-			mesa_amd_buggy_driver = true;
-		if (strstr(vendor, "VMware")) // Assume worst case because I don't know the real status
-			mesa_amd_buggy_driver = intel_buggy_driver = true;
+			vendor_id_nvidia = true;
 
 #ifdef _WIN32
-		buggy_sso_dual_src = intel_buggy_driver || fglrx_buggy_driver || legacy_fglrx_buggy_driver;
+		if (strstr(vendor, "Intel"))
+			vendor_id_intel = true;
 #else
-		buggy_sso_dual_src = fglrx_buggy_driver || legacy_fglrx_buggy_driver;
+		// On linux assumes the free driver if it isn't nvidia or amd pro driver
+		mesa_driver = !vendor_id_nvidia && !vendor_id_amd;
 #endif
+
+		buggy_sso_dual_src = vendor_id_intel || vendor_id_amd /*|| amd_legacy_buggy_driver*/;
 
 		if (theApp.GetConfigI("override_geometry_shader") != -1) {
 			found_geometry_shader = theApp.GetConfigB("override_geometry_shader");
@@ -304,13 +390,12 @@ namespace GLLoader {
 
 		if (glGetStringi && max_ext) {
 			for (GLint i = 0; i < max_ext; i++) {
-				string ext((const char*)glGetStringi(GL_EXTENSIONS, i));
+				std::string ext{(const char*)glGetStringi(GL_EXTENSIONS, i)};
 				// Bonus
 				if (ext.compare("GL_EXT_texture_filter_anisotropic") == 0) found_GL_EXT_texture_filter_anisotropic = true;
 				if (ext.compare("GL_NVX_gpu_memory_info") == 0) found_GL_NVX_gpu_memory_info = true;
 				// GL4.0
 				if (ext.compare("GL_ARB_gpu_shader5") == 0) found_GL_ARB_gpu_shader5 = true;
-				if (ext.compare("GL_ARB_draw_buffers_blend") == 0) found_GL_ARB_draw_buffers_blend = true;
 				// GL4.1
 				if (ext.compare("GL_ARB_viewport_array") == 0) found_GL_ARB_viewport_array = true;
 				if (ext.compare("GL_ARB_separate_shader_objects") == 0) found_GL_ARB_separate_shader_objects = true;
@@ -335,12 +420,12 @@ namespace GLLoader {
 		}
 
 		bool status = true;
+		bool required_for_hw = (theApp.GetCurrentRendererType() == GSRendererType::OGL_HW);
 
 		// Bonus
 		status &= status_and_override(found_GL_EXT_texture_filter_anisotropic, "GL_EXT_texture_filter_anisotropic");
 		// GL4.0
 		status &= status_and_override(found_GL_ARB_gpu_shader5, "GL_ARB_gpu_shader5");
-		status &= status_and_override(found_GL_ARB_draw_buffers_blend, "GL_ARB_draw_buffers_blend");
 		// GL4.1
 		status &= status_and_override(found_GL_ARB_viewport_array, "GL_ARB_viewport_array");
 		status &= status_and_override(found_GL_ARB_separate_shader_objects, "GL_ARB_separate_shader_objects", true);
@@ -349,39 +434,67 @@ namespace GLLoader {
 		status &= status_and_override(found_GL_ARB_shading_language_420pack, "GL_ARB_shading_language_420pack", true);
 		status &= status_and_override(found_GL_ARB_texture_storage, "GL_ARB_texture_storage", true);
 		// GL4.3
-		status &= status_and_override(found_GL_ARB_copy_image, "GL_ARB_copy_image", true);
+		status &= status_and_override(found_GL_ARB_copy_image, "GL_ARB_copy_image", required_for_hw);
 		status &= status_and_override(found_GL_KHR_debug, "GL_KHR_debug", true);
 		// GL4.4
 		status &= status_and_override(found_GL_ARB_buffer_storage,"GL_ARB_buffer_storage", true);
 		status &= status_and_override(found_GL_ARB_clear_texture,"GL_ARB_clear_texture");
 		// GL4.5
-		status &= status_and_override(found_GL_ARB_clip_control, "GL_ARB_clip_control", true);
-		status &= status_and_override(found_GL_ARB_direct_state_access, "GL_ARB_direct_state_access", true);
-		status &= status_and_override(found_GL_ARB_texture_barrier, "GL_ARB_texture_barrier", true);
+		status &= status_and_override(found_GL_ARB_clip_control, "GL_ARB_clip_control", required_for_hw);
+		status &= status_and_override(found_GL_ARB_direct_state_access, "GL_ARB_direct_state_access");
+		// Mandatory for the advance HW renderer effect. Unfortunately Mesa LLVMPIPE/SWR renderers doesn't support this extension.
+		// Rendering might be corrupted but it could be good enough for test/virtual machine.
+		status &= status_and_override(found_GL_ARB_texture_barrier, "GL_ARB_texture_barrier");
 		status &= status_and_override(found_GL_ARB_get_texture_sub_image, "GL_ARB_get_texture_sub_image");
 
-#ifdef _WIN32
-		if (status) {
-			if (fglrx_buggy_driver) {
-				fprintf(stderr, "OpenGL renderer is slow on AMD GPU due to inefficient driver. Sorry.\n");
+		if (s_first_load) {
+			if (vendor_id_amd) {
+				fprintf(stderr, "The OpenGL hardware renderer is slow on AMD GPUs due to an inefficient driver.\n"
+					"Check out the link below for further information.\n"
+					"https://github.com/PCSX2/pcsx2/wiki/OpenGL-and-AMD-GPUs---All-you-need-to-know\n");
 			}
+
+			if (vendor_id_intel) {
+				fprintf(stderr, "The OpenGL renderer is inefficient on Intel GPUs due to an inefficient driver.\n"
+					"Check out the link below for further information.\n"
+					"https://github.com/PCSX2/pcsx2/wiki/OpenGL-and-Intel-GPUs-All-you-need-to-know\n");
+			}
+		}
+
+		if (!found_GL_ARB_viewport_array) {
+			glScissorIndexed   = ReplaceGL::ScissorIndexed;
+			glViewportIndexedf = ReplaceGL::ViewportIndexedf;
+			if (s_first_load)
+				fprintf(stderr, "GL_ARB_viewport_array is not supported! Function pointer will be replaced\n");
+		}
+
+		if (!found_GL_ARB_texture_barrier) {
+			glTextureBarrier = ReplaceGL::TextureBarrier;
+			if (s_first_load)
+				fprintf(stderr, "GL_ARB_texture_barrier is not supported! Blending emulation will not be supported\n");
+		}
+
+#ifdef _WIN32
+		// Thank you Intel for not providing support of basic features on your IGPUs.
+		if (!found_GL_ARB_direct_state_access) {
+			Emulate_DSA::Init();
 		}
 #endif
 
-		if (!found_GL_ARB_viewport_array) {
-			fprintf(stderr, "GL_ARB_viewport_array: not supported ! function pointer will be replaced\n");
-			glScissorIndexed   = ReplaceGL::ScissorIndexed;
-			glViewportIndexedf = ReplaceGL::ViewportIndexedf;
-		}
-
-		if (!found_GL_ARB_draw_buffers_blend) {
-			fprintf(stderr, "GL_ARB_draw_buffers_blend: not supported ! function pointer will be replaced\n");
-			glBlendFuncSeparateiARB     = ReplaceGL::BlendFuncSeparateiARB;
-			glBlendEquationSeparateiARB = ReplaceGL::BlendEquationSeparateiARB;
-		}
-
-		fprintf(stdout, "\n");
+		if (s_first_load)
+			fprintf(stdout, "\n");
 
 		return status;
+	}
+
+	void check_gl_requirements()
+	{
+		if (!GLLoader::check_gl_version(3, 3))
+			throw GSDXRecoverableError();
+
+		if (!GLLoader::check_gl_supported_extension())
+			throw GSDXRecoverableError();
+
+		s_first_load = false;
 	}
 }

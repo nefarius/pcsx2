@@ -44,7 +44,7 @@ class GSCapture
 
 	#elif defined(__unix__)
 
-	vector<GSPng::Worker*> m_workers;
+	std::vector<std::unique_ptr<GSPng::Worker>> m_workers;
 	int m_compression_level;
 
 	#endif
@@ -53,7 +53,7 @@ public:
 	GSCapture();
 	virtual ~GSCapture();
 
-	bool BeginCapture(float fps, GSVector2i recomendedResolution, float aspect);
+	bool BeginCapture(float fps, GSVector2i recommendedResolution, float aspect);
 	bool DeliverFrame(const void* bits, int pitch, bool rgba);
 	bool EndCapture();
 

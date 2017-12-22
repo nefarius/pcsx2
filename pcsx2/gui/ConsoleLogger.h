@@ -17,6 +17,7 @@
 
 #include "App.h"
 #include <array>
+#include <map>
 #include <memory>
 
 static const bool EnableThreadedLoggingTest = false; //true;
@@ -34,7 +35,7 @@ class PipeRedirectionBase
 	DeclareNoncopyableObject( PipeRedirectionBase );
 
 public:
-	virtual ~PipeRedirectionBase() throw()=0;	// abstract destructor, forces abstract class behavior
+	virtual ~PipeRedirectionBase() =0;	// abstract destructor, forces abstract class behavior
 
 protected:
 	PipeRedirectionBase() {}
@@ -78,31 +79,10 @@ public:
 	{
 	}
 
-	~ConsoleTestThread() throw()
+	~ConsoleTestThread()
 	{
 		m_done = true;
 	}
-};
-
-// --------------------------------------------------------------------------------------
-//  pxLogTextCtrl
-// --------------------------------------------------------------------------------------
-class pxLogTextCtrl : public wxTextCtrl
-{
-protected:
-	std::unique_ptr<ScopedCoreThreadPause> m_IsPaused;
-
-public:
-	pxLogTextCtrl(wxWindow* parent);
-	virtual ~pxLogTextCtrl() throw();
-
-#ifdef __WXMSW__
-	virtual void WriteText(const wxString& text);
-#endif
-
-protected:
-	virtual void OnThumbTrack(wxScrollWinEvent& event);
-	virtual void OnThumbRelease(wxScrollWinEvent& event);
 };
 
 // --------------------------------------------------------------------------------------
@@ -124,11 +104,12 @@ protected:
 		std::array<wxTextAttr, ConsoleColors_Count> m_table;
 
 	public:
-		virtual ~ColorArray() throw();
+		virtual ~ColorArray() = default;
 		ColorArray( int fontsize=8 );
 
 		void SetFont( const wxFont& font );
 		void SetFont( int fontsize );
+		u32 GetRGBA( const ConsoleColors color );
 
 		const wxTextAttr& operator[]( ConsoleColors coloridx ) const
 		{
@@ -151,7 +132,7 @@ protected:
 
 protected:
 	ConLogConfig&	m_conf;
-	pxLogTextCtrl&	m_TextCtrl;
+	wxTextCtrl&		m_TextCtrl;
 	wxTimer			m_timer_FlushLimiter;
 	wxTimer			m_timer_FlushUnlocker;
 	ColorArray		m_ColorTable;
@@ -205,6 +186,7 @@ public:
 	// Retrieves the current configuration options settings for this box.
 	// (settings change if the user moves the window or changes the font size)
 	const ConLogConfig& GetConfig() const { return m_conf; }
+	u32 GetRGBA( const ConsoleColors color ) { return m_ColorTable.GetRGBA( color ); }
 
 	bool Write( ConsoleColors color, const wxString& text );
 	bool Newline();
@@ -241,3 +223,19 @@ protected:
 
 	void OnLoggingChanged();
 };
+
+void OSDlog(ConsoleColors color, bool console, const std::string& str);
+
+template<typename ... Args>
+void OSDlog(ConsoleColors color, bool console, const std::string& format, Args ... args) {
+	if (!GSosdLog && !console) return;
+
+	size_t size = snprintf( nullptr, 0, format.c_str(), args ... ) + 1; // Extra space for '\0'
+	std::vector<char> buf(size);
+	snprintf( buf.data(), size, format.c_str(), args ... );
+
+	OSDlog(color, console, buf.data());
+}
+
+void OSDmonitor(ConsoleColors color, const std::string key, const std::string value);
+

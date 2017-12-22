@@ -42,6 +42,16 @@ bool GSDevice11::CreateTextureFX()
 
 	memset(&bd, 0, sizeof(bd));
 
+	bd.ByteWidth = sizeof(GSConstantBuffer);
+	bd.Usage = D3D11_USAGE_DEFAULT;
+	bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+
+	hr = m_dev->CreateBuffer(&bd, NULL, &m_gs_cb);
+
+	if (FAILED(hr)) return false;
+
+	memset(&bd, 0, sizeof(bd));
+
 	bd.ByteWidth = sizeof(PSConstantBuffer);
 	bd.Usage = D3D11_USAGE_DEFAULT;
 	bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
@@ -78,6 +88,10 @@ bool GSDevice11::CreateTextureFX()
 
 	SetupVS(sel, &cb);
 
+	GSConstantBuffer gcb;
+
+	SetupGS(GSSelector(1), &gcb);
+
 	//
 
 	return true;
@@ -85,11 +99,11 @@ bool GSDevice11::CreateTextureFX()
 
 void GSDevice11::SetupVS(VSSelector sel, const VSConstantBuffer* cb)
 {
-	hash_map<uint32, GSVertexShader11 >::const_iterator i = m_vs.find(sel);
+	auto i = std::as_const(m_vs).find(sel);
 
 	if(i == m_vs.end())
 	{
-		string str[4];
+		std::string str[4];
 
 		str[0] = format("%d", sel.bppz);
 		str[1] = format("%d", sel.tme);
@@ -118,9 +132,9 @@ void GSDevice11::SetupVS(VSSelector sel, const VSConstantBuffer* cb)
 
 		GSVertexShader11 vs;
 
-		vector<unsigned char> shader;
+		std::vector<char> shader;
 		theApp.LoadResource(IDR_TFX_FX, shader);
-		CompileShader((const char *)shader.data(), shader.size(), "tfx.fx", nullptr, "vs_main", macro, &vs.vs, layout, countof(layout), &vs.il);
+		CompileShader(shader.data(), shader.size(), "tfx.fx", nullptr, "vs_main", macro, &vs.vs, layout, countof(layout), &vs.il);
 
 		m_vs[sel] = vs;
 
@@ -139,13 +153,14 @@ void GSDevice11::SetupVS(VSSelector sel, const VSConstantBuffer* cb)
 	IASetInputLayout(i->second.il);
 }
 
-void GSDevice11::SetupGS(GSSelector sel)
+void GSDevice11::SetupGS(GSSelector sel, const GSConstantBuffer* cb)
 {
 	CComPtr<ID3D11GeometryShader> gs;
 
-	if(sel.prim > 0 && (sel.iip == 0 || sel.prim == 3)) // geometry shader works in every case, but not needed
+	bool Unscale_GSShader = (sel.point == 1 || sel.line == 1) && UserHacks_unscale_pt_ln;
+	if((sel.prim > 0 && (sel.iip == 0 || sel.prim == 3)) || Unscale_GSShader) // geometry shader works in every case, but not needed
 	{
-		hash_map<uint32, CComPtr<ID3D11GeometryShader> >::const_iterator i = m_gs.find(sel);
+		auto i = std::as_const(m_gs).find(sel);
 
 		if(i != m_gs.end())
 		{
@@ -153,36 +168,48 @@ void GSDevice11::SetupGS(GSSelector sel)
 		}
 		else
 		{
-			string str[2];
+			std::string str[4];
 
 			str[0] = format("%d", sel.iip);
 			str[1] = format("%d", sel.prim);
+			str[2] = format("%d", sel.point);
+			str[3] = format("%d", sel.line);
 
 			D3D_SHADER_MACRO macro[] =
 			{
 				{"GS_IIP", str[0].c_str()},
 				{"GS_PRIM", str[1].c_str()},
+				{"GS_POINT", str[2].c_str()},
+				{"GS_LINE", str[3].c_str()},
 				{NULL, NULL},
 			};
 
-			vector<unsigned char> shader;
+			std::vector<char> shader;
 			theApp.LoadResource(IDR_TFX_FX, shader);
-			CompileShader((const char *)shader.data(), shader.size(), "tfx.fx", nullptr, "gs_main", macro, &gs);
+			CompileShader(shader.data(), shader.size(), "tfx.fx", nullptr, "gs_main", macro, &gs);
 
 			m_gs[sel] = gs;
 		}
 	}
 
-	GSSetShader(gs);
+
+	if (m_gs_cb_cache.Update(cb))
+	{
+		ID3D11DeviceContext* ctx = m_ctx;
+
+		ctx->UpdateSubresource(m_gs_cb, 0, NULL, cb, 0, 0);
+	}
+
+	GSSetShader(gs, m_gs_cb);
 }
 
 void GSDevice11::SetupPS(PSSelector sel, const PSConstantBuffer* cb, PSSamplerSelector ssel)
 {
-	hash_map<uint32, CComPtr<ID3D11PixelShader> >::const_iterator i = m_ps.find(sel);
+	auto i = std::as_const(m_ps).find(sel);
 
 	if(i == m_ps.end())
 	{
-		string str[20];
+		std::string str[21];
 
 		str[0] = format("%d", sel.fst);
 		str[1] = format("%d", sel.wms);
@@ -204,6 +231,7 @@ void GSDevice11::SetupPS(PSSelector sel, const PSConstantBuffer* cb, PSSamplerSe
 		str[17] = format("%d", sel.point_sampler);
 		str[18] = format("%d", sel.shuffle);
 		str[19] = format("%d", sel.read_ba);
+		str[20] = format("%d", sel.fmt >> 2);
 
 		D3D_SHADER_MACRO macro[] =
 		{
@@ -227,14 +255,15 @@ void GSDevice11::SetupPS(PSSelector sel, const PSConstantBuffer* cb, PSSamplerSe
 			{"PS_POINT_SAMPLER", str[17].c_str()},
 			{"PS_SHUFFLE", str[18].c_str() },
 			{"PS_READ_BA", str[19].c_str() },
+			{"PS_PAL_FMT", str[20].c_str() },
 			{NULL, NULL},
 		};
 
 		CComPtr<ID3D11PixelShader> ps;
 
-		vector<unsigned char> shader;
+		std::vector<char> shader;
 		theApp.LoadResource(IDR_TFX_FX, shader);
-		CompileShader((const char *)shader.data(), shader.size(), "tfx.fx", nullptr, "ps_main", macro, &ps);
+		CompileShader(shader.data(), shader.size(), "tfx.fx", nullptr, "ps_main", macro, &ps);
 
 		m_ps[sel] = ps;
 
@@ -257,7 +286,7 @@ void GSDevice11::SetupPS(PSSelector sel, const PSConstantBuffer* cb, PSSamplerSe
 			ssel.ltf = 0;
 		}
 
-		hash_map<uint32, CComPtr<ID3D11SamplerState> >::const_iterator i = m_ps_ss.find(ssel);
+		auto i = std::as_const(m_ps_ss).find(ssel);
 
 		if(i != m_ps_ss.end())
 		{
@@ -298,7 +327,7 @@ void GSDevice11::SetupPS(PSSelector sel, const PSConstantBuffer* cb, PSSamplerSe
 
 void GSDevice11::SetupOM(OMDepthStencilSelector dssel, OMBlendSelector bsel, uint8 afix)
 {
-	hash_map<uint32, CComPtr<ID3D11DepthStencilState> >::const_iterator i = m_om_dss.find(dssel);
+	auto i = std::as_const(m_om_dss).find(dssel);
 
 	if(i == m_om_dss.end())
 	{
@@ -347,7 +376,7 @@ void GSDevice11::SetupOM(OMDepthStencilSelector dssel, OMBlendSelector bsel, uin
 
 	OMSetDepthStencilState(i->second, 1);
 
-	hash_map<uint32, CComPtr<ID3D11BlendState> >::const_iterator j = m_om_bs.find(bsel);
+	auto j = std::as_const(m_om_bs).find(bsel);
 
 	if(j == m_om_bs.end())
 	{
@@ -401,7 +430,7 @@ void GSDevice11::SetupOM(OMDepthStencilSelector dssel, OMBlendSelector bsel, uin
 			{
 				(bsel.a == 0 ? bd.RenderTarget[0].SrcBlend : bd.RenderTarget[0].DestBlend) = D3D11_BLEND_ONE;
 
-				const string afixstr = format("%d >> 7", afix);
+				const std::string afixstr = format("%d >> 7", afix);
 				const char *col[3] = {"Cs", "Cd", "0"};
 				const char *alpha[3] = {"As", "Ad", afixstr.c_str()};
 				

@@ -21,10 +21,12 @@
 
 #pragma once
 
+#include "GSFastList.h"
 #include "GSWnd.h"
 #include "GSTexture.h"
 #include "GSVertex.h"
 #include "GSAlignedClass.h"
+#include "GSOsdManager.h"
 
 enum ShaderConvert {
 	ShaderConvert_COPY = 0,
@@ -44,7 +46,10 @@ enum ShaderConvert {
 	ShaderConvert_RGBA8_TO_FLOAT24,
 	ShaderConvert_RGBA8_TO_FLOAT16,
 	ShaderConvert_RGB5A1_TO_FLOAT16,
-	ShaderConvert_RGBA_TO_8I = 17
+	ShaderConvert_RGBA_TO_8I = 17,
+	ShaderConvert_OSD,
+	ShaderConvert_YUV,
+	ShaderConvert_Count
 };
 
 #pragma pack(push, 1)
@@ -99,11 +104,11 @@ public:
 
 class GSDevice : public GSAlignedClass<32>
 {
-	list<GSTexture*> m_pool;
+	FastList<GSTexture*> m_pool;
 
 protected:
-	GSWnd* m_wnd;
-	bool m_vsync;
+	std::shared_ptr<GSWnd> m_wnd;
+	int m_vsync;
 	bool m_rbswapped;
 	GSTexture* m_backbuffer;
 	GSTexture* m_merge;
@@ -117,17 +122,20 @@ protected:
 	struct {size_t stride, start, count, limit;} m_vertex;
 	struct {size_t start, count, limit;} m_index;
 	unsigned int m_frame; // for ageing the pool
+	bool m_linear_present;
 
 	virtual GSTexture* CreateSurface(int type, int w, int h, bool msaa, int format) = 0;
 	virtual GSTexture* FetchSurface(int type, int w, int h, bool msaa, int format);
 
-	virtual void DoMerge(GSTexture* sTex[2], GSVector4* sRect, GSTexture* dTex, GSVector4* dRect, bool slbg, bool mmod, const GSVector4& c) = 0;
+	virtual void DoMerge(GSTexture* sTex[3], GSVector4* sRect, GSTexture* dTex, GSVector4* dRect, const GSRegPMODE& PMODE, const GSRegEXTBUF& EXTBUF, const GSVector4& c) = 0;
 	virtual void DoInterlace(GSTexture* sTex, GSTexture* dTex, int shader, bool linear, float yoffset) = 0;
 	virtual void DoFXAA(GSTexture* sTex, GSTexture* dTex) {}
 	virtual void DoShadeBoost(GSTexture* sTex, GSTexture* dTex) {}
 	virtual void DoExternalFX(GSTexture* sTex, GSTexture* dTex) {}
 
 public:
+	GSOsdManager m_osd;
+
 	GSDevice();
 	virtual ~GSDevice();
 
@@ -135,14 +143,14 @@ public:
 
 	enum {Windowed, Fullscreen, DontCare};
 
-	virtual bool Create(GSWnd* wnd);
+	virtual bool Create(const std::shared_ptr<GSWnd> &wnd);
 	virtual bool Reset(int w, int h);
 	virtual bool IsLost(bool update = false) {return false;}
 	virtual void Present(const GSVector4i& r, int shader);
 	virtual void Present(GSTexture* sTex, GSTexture* dTex, const GSVector4& dRect, int shader = 0);
 	virtual void Flip() {}
 
-	virtual void SetVSync(bool enable) {m_vsync = enable;}
+	virtual void SetVSync(int vsync) {m_vsync = vsync;}
 
 	virtual void BeginScene() {}
 	virtual void DrawPrimitive() {};
@@ -152,7 +160,7 @@ public:
 
 	virtual void ClearRenderTarget(GSTexture* t, const GSVector4& c) {}
 	virtual void ClearRenderTarget(GSTexture* t, uint32 c) {}
-	virtual void ClearDepth(GSTexture* t, float c) {}
+	virtual void ClearDepth(GSTexture* t) {}
 	virtual void ClearStencil(GSTexture* t, uint8 c) {}
 
 	virtual GSTexture* CreateRenderTarget(int w, int h, bool msaa, int format = 0);
@@ -175,11 +183,12 @@ public:
 
 	GSTexture* GetCurrent();
 
-	void Merge(GSTexture* sTex[2], GSVector4* sRect, GSVector4* dRect, const GSVector2i& fs, bool slbg, bool mmod, const GSVector4& c);
+	void Merge(GSTexture* sTex[3], GSVector4* sRect, GSVector4* dRect, const GSVector2i& fs, const GSRegPMODE& PMODE, const GSRegEXTBUF& EXTBUF, const GSVector4& c);
 	void Interlace(const GSVector2i& ds, int field, int mode, float yoffset);
 	void FXAA();
 	void ShadeBoost();
 	void ExternalFX();
+	virtual void RenderOsd(GSTexture* dt) {};
 
 	bool ResizeTexture(GSTexture** t, int w, int h);
 

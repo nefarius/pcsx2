@@ -28,14 +28,18 @@ class GSWndWGL : public GSWndGL
 	HWND	 m_NativeWindow;
 	HDC		 m_NativeDisplay;
 	HGLRC	 m_context;
+	bool	 m_has_late_vsync;
 
 	PFNWGLSWAPINTERVALEXTPROC m_swapinterval;
 
-	bool CreateContext(int major, int minor);
-	void CheckContext();
+	void PopulateWndGlFunction();
+	void CreateContext(int major, int minor);
 
 	void CloseWGLDisplay();
-	bool OpenWGLDisplay();
+	void OpenWGLDisplay();
+
+	void SetSwapInterval();
+	bool HasLateVsyncSupport() { return m_has_late_vsync; }
 
 	static LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
@@ -43,7 +47,7 @@ public:
 	GSWndWGL();
 	virtual ~GSWndWGL() {};
 
-	bool Create(const string& title, int w, int h);
+	bool Create(const std::string& title, int w, int h);
 	bool Attach(void* handle, bool managed = true);
 	void Detach();
 
@@ -60,7 +64,6 @@ public:
 	void Hide();
 	void HideFrame();
 	void Flip();
-	void SetVSync(bool enable);
 };
 
 #endif

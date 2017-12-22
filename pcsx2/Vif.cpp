@@ -83,7 +83,7 @@ __fi void vif0FBRST(u32 value) {
 		u128 SaveCol;
 		u128 SaveRow;
 
-	//	if(vif0ch.chcr.STR == true) DevCon.Warning("FBRST While Vif0 active");
+	//	if(vif0ch.chcr.STR) DevCon.Warning("FBRST While Vif0 active");
 		//Must Preserve Row/Col registers! (Downhill Domination for testing)
 		SaveCol._u64[0] = vif0.MaskCol._u64[0];
 		SaveCol._u64[1] = vif0.MaskCol._u64[1];
@@ -140,15 +140,10 @@ __fi void vif0FBRST(u32 value) {
 		vif0Regs.stat.clear_flags(VIF0_STAT_VSS | VIF0_STAT_VFS | VIF0_STAT_VIS |
 				    VIF0_STAT_INT | VIF0_STAT_ER0 | VIF0_STAT_ER1);
 		if (cancel)
-		{
-			if (vif0.vifstalled.enabled && vif0.vifstalled.value == VIF_IRQ_STALL)
-			{				
+		{			
 				g_vif0Cycles = 0;
-
 				// loop necessary for spiderman
-				//vif0ch.chcr.STR = true;
 				 if(vif0ch.chcr.STR) CPU_INT(DMAC_VIF0, 0); // Gets the timing right - Flatout
-			}
 		}
 	}
 }
@@ -160,7 +155,7 @@ __fi void vif1FBRST(u32 value) {
 	{
 		u128 SaveCol;
 		u128 SaveRow;
-		//if(vif1ch.chcr.STR == true) DevCon.Warning("FBRST While Vif1 active");
+		//if(vif1ch.chcr.STR) DevCon.Warning("FBRST While Vif1 active");
 		//Must Preserve Row/Col registers! (Downhill Domination for testing) - Really shouldnt be part of the vifstruct.
 		SaveCol._u64[0] = vif1.MaskCol._u64[0];
 		SaveCol._u64[1] = vif1.MaskCol._u64[1];
@@ -200,15 +195,7 @@ __fi void vif1FBRST(u32 value) {
 				if(gifUnit.checkPaths(1,0,1)) gifUnit.Execute(false, true);
 			}
 		}
-		
-#if USE_OLD_GIF == 1 // ...
-		if(vif1Regs.mskpath3 == 1 && GSTransferStatus.PTH3 == STOPPED_MODE && gifch.chcr.STR == true) {
-			DevCon.Warning("VIF Path3 Resume on FBRST MSK = %x", vif1Regs.mskpath3);
-			gifInterrupt();
-			vif1Regs.mskpath3 = false;
-			gifRegs.stat.M3P  = false;
-		}
-#endif
+
 		GUNIT_WARN(Color_Red, "VIF FBRST Reset MSK = %x", vif1Regs.mskpath3);
 		vif1Regs.mskpath3 = false;
 		gifRegs.stat.M3P  = 0;
@@ -262,8 +249,6 @@ __fi void vif1FBRST(u32 value) {
 
 		if (cancel)
 		{
-			if (vif1.vifstalled.enabled && vif1.vifstalled.value == VIF_IRQ_STALL)
-			{
 				g_vif1Cycles = 0;
 				// loop necessary for spiderman
 				switch(dmacRegs.ctrl.MFD)
@@ -271,19 +256,18 @@ __fi void vif1FBRST(u32 value) {
 				    case MFD_VIF1:
                         //Console.WriteLn("MFIFO Stall");
 						//MFIFO active and not empty
-                        if(vif1ch.chcr.STR == true) CPU_INT(DMAC_MFIFO_VIF, 0);
+                        if(vif1ch.chcr.STR) CPU_INT(DMAC_MFIFO_VIF, 0);
                         break;
 
                     case NO_MFD:
                     case MFD_RESERVED:
                     case MFD_GIF: // Wonder if this should be with VIF?
                         // Gets the timing right - Flatout
-                        if(vif1ch.chcr.STR == true) CPU_INT(DMAC_VIF1, 0);
+                        if(vif1ch.chcr.STR) CPU_INT(DMAC_VIF1, 0);
                         break;
 				}
 
 				//vif1ch.chcr.STR = true;
-			}
 		}
 	}
 }

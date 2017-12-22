@@ -314,8 +314,6 @@ public:
 		//if( !pxAssert( (src.Slot >= 0) && (dest.Slot >= 0) ) ) return wxDragNone;
 		const wxDirName basepath( m_listview->GetMcdProvider().GetMcdPath() );
 
-		bool result = true;
-
 		if( wxDragCopy == def )
 		{
 			if( !m_listview->GetMcdProvider().UiDuplicateCard(src, dest) )
@@ -372,7 +370,7 @@ enum McdMenuId
 Panels::MemoryCardListPanel_Simple* g_uglyPanel=NULL;
 void g_uglyFunc(){if (g_uglyPanel) g_uglyPanel->OnChangedListSelection();}
 
-Panels::MemoryCardListPanel_Simple::~MemoryCardListPanel_Simple() throw(){g_uglyPanel=NULL;}
+Panels::MemoryCardListPanel_Simple::~MemoryCardListPanel_Simple() {g_uglyPanel=NULL;}
 
 Panels::MemoryCardListPanel_Simple::MemoryCardListPanel_Simple( wxWindow* parent )
 	: _parent( parent )
@@ -553,7 +551,7 @@ void Panels::MemoryCardListPanel_Simple::AppStatusEvent_OnSettingsApplied()
 			wxString errMsg;
 			if (isValidNewFilename(m_Cards[slot].Filename.GetFullName(), GetMcdPath(), errMsg, 5))
 			{
-				if ( !Dialogs::CreateMemoryCardDialog::CreateIt(targetFile, 8) )
+				if ( !Dialogs::CreateMemoryCardDialog::CreateIt(targetFile, 8, false) )
 					Console.Error( L"Automatic createion of MCD '%s' failed. Hope for the best...", WX_STR(targetFile) );
 				else
 					Console.WriteLn( L"memcard created: '%s'.", WX_STR(targetFile) );
@@ -1049,7 +1047,7 @@ void Panels::MemoryCardListPanel_Simple::OnOpenItemContextMenu(wxListEvent& evt)
 
 void Panels::MemoryCardListPanel_Simple::ReadFilesAtMcdFolder(){
 	//Dir enumeration/iteration code courtesy of cotton. - avih.
-	while( m_allFilesystemCards.size() )
+	while( !m_allFilesystemCards.empty() )
 		m_allFilesystemCards.pop_back();
 
 	m_filesystemPlaceholderCard.Slot=-1;

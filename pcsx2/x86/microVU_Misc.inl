@@ -298,9 +298,9 @@ __fi void mVUaddrFix(mV, const x32& gprReg)
 				if (IsDevBuild && !isCOP2) {         // Lets see which games do this!
 					xMOV(gprT2, mVU.prog.cur->idx); // Note: Kernel does it via COP2 to initialize VU1!
 					xMOV(gprT3, xPC);               // So we don't spam console, we'll only check micro-mode...
-					xCALL(mVUwarningRegAccess);
+					xCALL((void*)mVUwarningRegAccess);
 				}
-				xCALL(mVUwaitMTVU);
+				xCALL((void*)mVUwaitMTVU);
 #ifdef __GNUC__
 				xADD(esp, 4);
 #endif
@@ -565,7 +565,7 @@ __pagealigned u8 mVUsearchXMM[__pagesize];
 // Note: Structs must be 16-byte aligned! (GCC doesn't guarantee this)
 void mVUcustomSearch() {
 	HostSys::MemProtectStatic(mVUsearchXMM, PageAccess_ReadWrite());
-	memset_8<0xcc,__pagesize>(mVUsearchXMM);
+	memset(mVUsearchXMM, 0xcc, __pagesize);
 	xSetPtr(mVUsearchXMM);
 
 	xMOVAPS  (xmm0, ptr32[ecx]);

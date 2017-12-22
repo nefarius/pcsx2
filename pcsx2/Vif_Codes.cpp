@@ -143,7 +143,7 @@ template<int idx> __fi int _vifCode_Direct(int pass, const u8* data, bool isDire
 	pass2 {
 		const char* name = isDirectHL ? "DirectHL" : "Direct";
 		GIF_TRANSFER_TYPE tranType = isDirectHL ? GIF_TRANS_DIRECTHL : GIF_TRANS_DIRECT;
-		uint size = aMin(vif1.vifpacketsize, vif1.tag.size) * 4; // Get size in bytes
+		uint size = std::min(vif1.vifpacketsize, vif1.tag.size) * 4; // Get size in bytes
 		uint ret  = gifUnit.TransferGSPacketData(tranType, (u8*)data, size);
 
 		vif1.tag.size    -= ret/4; // Convert to u32's
@@ -182,7 +182,7 @@ vifOp(vifCode_DirectHL) {
 
 vifOp(vifCode_Flush) {
 	vif1Only();
-	vifStruct& vifX = GetVifX;
+	//vifStruct& vifX = GetVifX;
 	pass1or2 {
 		bool p1or2 = (gifRegs.stat.APATH != 0 && gifRegs.stat.APATH != 3);
 		vif1Regs.stat.VGW = false;
@@ -204,7 +204,7 @@ vifOp(vifCode_Flush) {
 
 vifOp(vifCode_FlushA) {
 	vif1Only();
-	vifStruct& vifX = GetVifX;
+	//vifStruct& vifX = GetVifX;
 	pass1or2 {
 		//Gif_Path& p3      = gifUnit.gifPath[GIF_PATH_3];
 		u32       gifBusy   = gifUnit.checkPaths(1,1,1) || (gifRegs.stat.APATH != 0);
@@ -220,29 +220,7 @@ vifOp(vifCode_FlushA) {
 			vif1.vifstalled.value = VIF_TIMING_BREAK;
 			return 0;
 			
-			//gifUnit.PrintInfo();
-			/*if (p3.state != GIF_PATH_IDLE && !p1or2) { // Only path 3 left...
-				GUNIT_WARN("Vif FlushA - Getting path3 to finish!");
-				if (gifUnit.lastTranType == GIF_TRANS_FIFO
-				&&  p3.state != GIF_PATH_IDLE && !p3.hasDataRemaining()) { 
-					//p3.state= GIF_PATH_IDLE; // Does any game need this anymore?
-					DevCon.Warning("Vif FlushA - path3 has no more data, but didn't EOP");
-				}
-
-				if (p3.state != GIF_PATH_IDLE) {
-					doStall = true; // If path3 still isn't finished...
-				}
-			}
-			else doStall = true;*/
 		}
-		/*if (doStall) {
-			vif1Regs.stat.VGW = true;
-			vifX.vifstalled.enabled   = VifStallEnable(vifXch);
-			vifX.vifstalled.value = VIF_TIMING_BREAK;
-			return 0;
-		}
-		else*/ 
-		//Didn't need to stall!
 		vif1.cmd = 0;
 		vif1.pass = 0;
 	}
@@ -321,13 +299,12 @@ static __fi void _vifCode_MPG(int idx, u32 addr, const u32 *data, int size) {
 vifOp(vifCode_MPG) {
 	vifStruct& vifX = GetVifX;
 	pass1 {
-		bool   bProgramExists = false;
 		int    vifNum =  (u8)(vifXRegs.code >> 16);
 		vifX.tag.addr = (u16)(vifXRegs.code <<  3) & (idx ? 0x3fff : 0xfff);
 		vifX.tag.size = vifNum ? (vifNum*2) : 512;
 		vifFlush(idx);
 
-		if(vifX.vifstalled.enabled == true) return 0;
+		if(vifX.vifstalled.enabled) return 0;
 		else
 		{
 			vifX.pass = 1;
@@ -364,7 +341,7 @@ vifOp(vifCode_MSCAL) {
 	pass1 { 
 		vifFlush(idx); 
 
-		if(vifX.waitforvu == false)
+		if(!vifX.waitforvu)
 		{
 			vuExecMicro(idx, (u16)(vifXRegs.code) << 3); 
 			vifX.cmd = 0;
@@ -395,7 +372,7 @@ vifOp(vifCode_MSCALF) {
 			vifX.vifstalled.enabled   = VifStallEnable(vifXch);
 			vifX.vifstalled.value = VIF_TIMING_BREAK;
 		}
-		if(vifX.waitforvu == false)
+		if(!vifX.waitforvu)
 		{
 			vuExecMicro(idx, (u16)(vifXRegs.code) << 3);
 			vifX.cmd = 0;
@@ -411,12 +388,18 @@ vifOp(vifCode_MSCNT) {
 	vifStruct& vifX = GetVifX;
 	pass1 { 
 		vifFlush(idx); 
-		if(vifX.waitforvu == false)
+		if(!vifX.waitforvu)
 		{
 			vuExecMicro(idx, -1);
 			vifX.cmd = 0;
 			vifX.pass = 0;
-			vifExecQueue(idx);
+			if (GetVifX.vifpacketsize > 1)
+			{
+				if (((data[1] >> 24) & 0x60) == 0x60) // Immediate following Unpack
+				{
+					vifExecQueue(idx);
+				}
+			}
 		}
 	}
 	pass3 { VifCodeLog("MSCNT"); }
@@ -429,12 +412,11 @@ vifOp(vifCode_MskPath3) {
 	pass1 {		
 		vif1Regs.mskpath3 = (vif1Regs.code >> 15) & 0x1;
 		gifRegs.stat.M3P  = (vif1Regs.code >> 15) & 0x1;
-		GUNIT_LOG("Vif1 - MskPath3 [p3 = %s]", vif1Regs.mskpath3 ? "disabled" : "enabled");
+		GUNIT_LOG("Vif1 - MskPath3 [p3 = %s]", vif1Regs.mskpath3 ? "masked" : "enabled");
 		if(!vif1Regs.mskpath3) {
-			//if(!gifUnit.gifPath[GIF_PATH_3].isDone() || gifRegs.stat.P3Q || gifRegs.stat.IP3) {
-				GUNIT_WARN("Path3 triggering!");
-				gifInterrupt();
-			//}
+			GUNIT_WARN("Path3 triggering!");
+			if(CHECK_GIFFIFOHACK)gif_fifo.read(false);
+			else gifInterrupt();
 		}
 		vif1.cmd = 0;
 		vif1.pass = 0;
@@ -458,7 +440,7 @@ vifOp(vifCode_Nop) {
 
 		if (GetVifX.vifpacketsize > 1)
 		{
-			if(((data[1] >> 24) & 0x7f) == 0x6) //is mskpath3 next
+			if(((data[1] >> 24) & 0x7f) == 0x6 && (data[1] & 0x1)) //is mskpath3 next
 			{ 
 				GetVifX.vifstalled.enabled   = VifStallEnable(vifXch);
 				GetVifX.vifstalled.value = VIF_TIMING_BREAK;

@@ -23,11 +23,12 @@
 #include "GSState.h"
 #include "GSdx.h"
 
-int s_crc_hack_level = 3;
+static CRCHackLevel s_crc_hack_level = CRCHackLevel::Full;
 
 // hacks
-#define Aggresive (s_crc_hack_level > 3)
-#define Dx_only   (s_crc_hack_level > 2)
+#define Aggressive (s_crc_hack_level >= CRCHackLevel::Aggressive)
+#define Dx_only (s_crc_hack_level >= CRCHackLevel::Full)
+#define Dx_and_OGL (s_crc_hack_level >= CRCHackLevel::Partial)
 
 CRC::Region g_crc_region = CRC::NoRegion;
 
@@ -77,40 +78,28 @@ bool GSC_DBZBT3(const GSFrameInfo& fi, int& skip)
 {
 	if(skip == 0)
 	{
-		if(fi.TME && fi.FBP == 0x01c00 && fi.FPSM == PSM_PSMCT32 && (fi.TBP0 == 0x00000 || fi.TBP0 == 0x00e00 || fi.TBP0 == 0x01000) && fi.TPSM == PSM_PSMT8H)
+		if(Aggressive && fi.TME && (fi.FBP == 0x00000 || fi.FBP == 0x00e00 || fi.FBP == 0x01000) && fi.FPSM == PSM_PSMCT32 && fi.TPSM == PSM_PSMT8H && fi.FBMSK == 0x00000)
 		{
-			//not needed anymore?
-			//skip = 24; // blur
-		}
-		else if(fi.TME && (fi.FBP == 0x00000 || fi.FBP == 0x00e00 || fi.FBP == 0x01000) && fi.FPSM == PSM_PSMCT32 && fi.TPSM == PSM_PSMT8H)
-		{
-			if (Dx_only) { // Ought to be fine with blending accuracy (fbmask?)
-				if(fi.FBMSK == 0x00000)
-				{
-					skip = 28; // outline
-				}
-				if(fi.FBMSK == 0x00FFFFFF)
-				{
-					skip = 1;
-				}
-			}
+			// Partially works on D3D. OpenGL has no such issues.
+			// Hack removes character outlines as well as black borders on the sides of the screen.
+			// Without the hack one of the borders at the bottom of the screen can start shaking when using the Direct3D 9 renderer. This is caused by resolution upscale.
+			// This can also be fixed by using the TC Offsets x and y hardware hacks or using Native resolution.
+			skip = 28;
 		}
 		else if(fi.TME && (fi.FBP == 0x00000 || fi.FBP == 0x00e00 || fi.FBP == 0x01000) && fi.FPSM == PSM_PSMCT16 && fi.TPSM == PSM_PSMZ16)
 		{
-			// Texture shuffling must work on openGL
-			if (Dx_only)
+			// Texture shuffling works on OpenGL only for the NTSC version. The PAL version still has some issues.
+			// Sky texture (depth related). On Direct3D the blue sky texture is shown on the whole screen in front of the player if hack is disabled.
+			if(g_crc_region == CRC::EU || Dx_only)
+			{
 				skip = 5;
+			}
 		}
-		else if(fi.TME && fi.FPSM == fi.TPSM && fi.TBP0 == 0x03f00 && fi.TPSM == PSM_PSMCT32)
+		else if(fi.TME && (fi.FBP == 0x03400 || fi.FBP == 0x02e00) && fi.FPSM == fi.TPSM && fi.TBP0 == 0x03f00 && fi.TPSM == PSM_PSMCT32)
 		{
-			if (fi.FBP == 0x03400)
-			{
-				skip = 1;	//PAL
-			}
-			if(fi.FBP == 0x02e00)
-			{
-				skip = 3;	//NTSC
-			}
+			// Ghosting (glow) effect. Ghosting appears when resolution is upscaled. Doesn't appear on native resolution.
+			// This can also be fixed by using the TC Offsets x and y hardware hacks or using Native resolution.
+			skip = 3;
 		}
 	}
 
@@ -218,23 +207,6 @@ bool GSC_CrashBandicootWoC(const GSFrameInfo& fi, int& skip)
 	return true;
 }
 
-bool GSC_ResidentEvil4(const GSFrameInfo& fi, int& skip)
-{
-	if(skip == 0)
-	{
-		if(fi.TME && fi.FBP == 0x03100 && fi.FPSM == PSM_PSMCT32 && fi.TBP0 == 0x01c00 && fi.TPSM == PSM_PSMZ24)
-		{
-			skip = 176;
-		}
-		else if(fi.TME && fi.FBP ==0x03100 && (fi.TBP0==0x2a00 ||fi.TBP0==0x3480) && fi.TPSM == PSM_PSMCT32 && fi.FBMSK == 0)
-		{
-			skip = 1;
-		}
-	}
-
-	return true;
-}
-
 bool GSC_SacredBlaze(const GSFrameInfo& fi, int& skip)
 {
 	//Fix Sacred Blaze rendering glitches
@@ -272,23 +244,6 @@ bool GSC_Spartan(const GSFrameInfo& fi, int& skip)
 						skip = 1;
 					}
 				}
-		}
-	}
-
-	return true;
-}
-
-bool GSC_AceCombat4(const GSFrameInfo& fi, int& skip)
-{
-	if(skip == 0)
-	{
-		if(fi.TME && fi.FBP == 0x02a00 && fi.FPSM == PSM_PSMZ24 && fi.TBP0 == 0x01600 && fi.TPSM == PSM_PSMZ24)
-		{
-			skip = 71; // clouds (z, 16-bit)
-		}
-		else if(fi.TME && fi.FBP == 0x02900 && fi.FPSM == PSM_PSMCT32 && fi.TBP0 == 0x00000 && fi.TPSM == PSM_PSMCT24)
-		{
-			skip = 28; // blur
 		}
 	}
 
@@ -355,44 +310,6 @@ bool GSC_Genji(const GSFrameInfo& fi, int& skip)
 	}
 	else
 	{
-	}
-
-	return true;
-}
-
-bool GSC_HauntingGround(const GSFrameInfo& fi, int& skip)
-{
-	if(skip == 0)
-	{
-		if(fi.TME && fi.FPSM == fi.TPSM && fi.TPSM == PSM_PSMCT16S && fi.FBMSK == 0x03FFF)
-		{
-			if (Dx_only)
-				skip = 1;
-			else
-				return false;
-		}
-		else if(fi.TME && fi.FBP == 0x3000 && fi.TBP0 == 0x3380)
-		{
-			skip = 1; // bloom
-		}
-		else if(fi.TME && (fi.FBP ==0x2200) && (fi.TBP0 ==0x3a80) && fi.FPSM == fi.TPSM && fi.TPSM == PSM_PSMCT32)
-		{
-			skip = 1;
-		}
-		else if(fi.FBP ==0x2200 && fi.TBP0==0x3000 && fi.TPSM == PSM_PSMT8H && fi.FBMSK == 0)
-		{
-			skip = 1;
-		}
-		else if(fi.TME)
-		{
-			// depth textures (bully, mgs3s1 intro, Front Mission 5)
-			if( (fi.TPSM == PSM_PSMZ32 || fi.TPSM == PSM_PSMZ24 || fi.TPSM == PSM_PSMZ16 || fi.TPSM == PSM_PSMZ16S) ||
-				// General, often problematic post processing
-				(GSUtil::HasSharedBits(fi.FBP, fi.FPSM, fi.TBP0, fi.TPSM)) )
-			{
-				skip = 1;
-			}
-		}
 	}
 
 	return true;
@@ -554,6 +471,19 @@ bool GSC_ShadowofRome(const GSFrameInfo& fi, int& skip)
 	return true;
 }
 
+bool GSC_SFEX3(const GSFrameInfo& fi, int& skip)
+{
+	if (skip == 0)
+	{
+		if (fi.TME && fi.FBP == 0x00500 && fi.FPSM == PSM_PSMCT16 && fi.TBP0 == 0x00f00 && fi.TPSM == PSM_PSMCT16)
+		{
+			skip = 2; // blur
+		}
+	}
+
+	return true;
+}
+
 bool GSC_TimeSplitters2(const GSFrameInfo& fi, int& skip)
 {
 	if(skip == 0)
@@ -648,6 +578,37 @@ bool GSC_BleachBladeBattlers(const GSFrameInfo& fi, int& skip)
 	return true;
 }
 
+bool GSC_Tekken5(const GSFrameInfo& fi, int& skip)
+{
+	if(skip == 0)
+	{
+		if(Aggressive && fi.TME && (fi.FBP == 0x02d60 || fi.FBP == 0x02d80 || fi.FBP == 0x02ea0 || fi.FBP == 0x03620) && fi.FPSM == fi.TPSM && fi.TBP0 == 0x00000 && fi.TPSM == PSM_PSMCT32)
+		{
+			// Fixes/removes ghosting/blur effect and white lines appearing in stages: Moonfit Wilderness, Acid Rain - caused by upscaling.
+			// Downside is it also removes the channel effect which is fixed on OpenGL.
+			// Let's enable this hack for Aggressive only since it's an upscaling issue for both renders.
+			skip = 95;
+		}
+		else if(fi.TME && (fi.FBP == 0x02bc0 || fi.FBP == 0x02be0 || fi.FBP == 0x02d00) && fi.FPSM == fi.TPSM && fi.TBP0 == 0x00000 && fi.TPSM == PSM_PSMCT32)
+		{
+			// The moving display effect(flames) is not emulated properly in the entire screen so let's remove the effect in the stage: Burning Temple. Related to half screen bottom issue.
+			// Fixes black lines in the stage: Burning Temple - caused by upscaling. Note the black lines can also be fixed with Merge Sprite hack.
+			skip = 2;
+		}
+		// It's unknown what this hack does so let's comment it out since it doesn't cause any issues when disabled it seems.
+		/*else if(fi.TME)
+		{
+			if( (fi.TPSM == PSM_PSMZ32 || fi.TPSM == PSM_PSMZ24 || fi.TPSM == PSM_PSMZ16 || fi.TPSM == PSM_PSMZ16S) ||
+				(GSUtil::HasSharedBits(fi.FBP, fi.FPSM, fi.TBP0, fi.TPSM)) )
+			{
+				skip = 24;
+			}
+		}*/
+	}
+
+	return true;
+}
+
 bool GSC_TombRaider(const GSFrameInfo& fi, int& skip)
 {
 	if(skip == 0)
@@ -695,23 +656,6 @@ bool GSC_TombRaiderUnderWorld(const GSFrameInfo& fi, int& skip)
 		{
 			skip = 600;
 		}*/
-	}
-
-	return true;
-}
-
-bool GSC_FFVIIDoC(const GSFrameInfo& fi, int& skip)
-{
-	if(skip == 0)
-	{
-		if(fi.TME && fi.FBP == 0x01c00 && fi.FPSM == PSM_PSMCT32 && fi.TBP0 == 0x02c00 && fi.TPSM == PSM_PSMCT24)
-		{
-			skip = 1;
-		}
-		if(!fi.TME && fi.FBP == 0x01c00 && fi.FPSM == PSM_PSMCT32 && fi.TBP0 == 0x01c00 && fi.TPSM == PSM_PSMCT24)
-		{
-			//skip = 1;
-		}
 	}
 
 	return true;
@@ -843,19 +787,6 @@ bool GSC_TalesOfLegendia(const GSFrameInfo& fi, int& skip)
 		if(!fi.TME && fi.FBP ==0x2a00 && (fi.TBP0==0x1C00 ) && fi.TPSM ==0  && fi.FBMSK == 0x00FFFFFF)
 		{
 			skip = 1;
-		}
-	}
-
-	return true;
-}
-
-bool GSC_NanoBreaker(const GSFrameInfo& fi, int& skip)
-{
-	if(skip == 0)
-	{
-		if(fi.TME && fi.FBP == 0x0 && fi.FPSM == PSM_PSMCT32 && (fi.TBP0 == 0x03800 || fi.TBP0 == 0x03900) && fi.TPSM == PSM_PSMCT16S)
-		{
-			skip = 2;
 		}
 	}
 
@@ -1027,19 +958,6 @@ bool GSC_ShinOnimusha(const GSFrameInfo& fi, int& skip)
 	return true;
 }
 
-bool GSC_GetaWay(const GSFrameInfo& fi, int& skip)
-{
-	if(skip == 0)
-	{
-		if((fi.FBP ==0 || fi.FBP ==0x1180)&& fi.TPSM == PSM_PSMT8H && fi.FBMSK == 0)
-		{
-			skip = 1;
-		}
-	}
-
-	return true;
-}
-
 bool GSC_SakuraWarsSoLongMyLove(const GSFrameInfo& fi, int& skip)
 {
 	if(skip == 0)
@@ -1066,19 +984,6 @@ bool GSC_FightingBeautyWulong(const GSFrameInfo& fi, int& skip)
 	if(skip == 0)
 	{
 		if(fi.TME && (fi.TBP0 ==0x0700 || fi.TBP0 ==0x0a80) && (fi.TPSM == PSM_PSMCT32 || fi.TPSM == PSM_PSMCT24))
-		{
-			skip = 1;
-		}
-	}
-
-	return true;
-}
-
-bool GSC_GTASanAndreas(const GSFrameInfo& fi, int& skip)
-{
-	if(skip == 0)
-	{
-		if(fi.TME && (fi.FBP ==0x0a00 || fi.FBP ==0x08c0) && (fi.TBP0 ==0x1b80 || fi.TBP0 ==0x1a40) && fi.FPSM == fi.TPSM && fi.TPSM == PSM_PSMCT32)
 		{
 			skip = 1;
 		}
@@ -1141,19 +1046,6 @@ bool GSC_UltramanFightingEvolution(const GSFrameInfo& fi, int& skip)
 		if(fi.TME && fi.FBP==0x2a00 && fi.FPSM == PSM_PSMZ24 && fi.TBP0 == 0x1c00 && fi.TPSM == PSM_PSMZ24)
 		{
 			skip = 5; // blur
-		}
-	}
-
-	return true;
-}
-
-bool GSC_AlpineRacer3(const GSFrameInfo& fi, int& skip)
-{
-	if(skip == 0)
-	{
-		if(!fi.TME && fi.FBP == 0 && (fi.FBMSK ==0x0001 ||fi.FBMSK == 0x00FFFFFF))
-		{
-			skip = 2;
 		}
 	}
 
@@ -1291,15 +1183,15 @@ bool GSC_SteambotChronicles(const GSFrameInfo& fi, int& skip)
 		{
 			if(fi.FBP == 0x1180)
 			{
-				skip=1;//1 deletes some of the glitched effects
+				skip=1; // 1 deletes some of the glitched effects
 			}
 			else if(fi.FBP == 0)
 			{
-				skip=100;//deletes most others(too high deletes the buggy sea completely;c, too low causes glitches to be visible)
+				skip=100; // deletes most others(too high deletes the buggy sea completely;c, too low causes glitches to be visible)
 			}
-			else if(Aggresive && fi.FBP != 0)//Agressive CRC
+			else if(Aggressive && fi.FBP != 0) // Aggressive CRC
 			{
-				skip=19;//"speedhack", makes the game very light, vaporized water can disappear when not looked at directly, possibly some interface still, other value to try: 6 breaks menu background, possibly nothing(?) during gameplay, but it's slower, hence not much of a speedhack anymore
+				skip=19; // "speedhack", makes the game very light, vaporized water can disappear when not looked at directly, possibly some interface still, other value to try: 6 breaks menu background, possibly nothing(?) during gameplay, but it's slower, hence not much of a speedhack anymore
 			}
 		}
 	}
@@ -1309,6 +1201,67 @@ bool GSC_SteambotChronicles(const GSFrameInfo& fi, int& skip)
 ////////////////////////////////////////////////////////////////////////////////
 // Correctly emulated on OpenGL but can be used as potential speed hack
 ////////////////////////////////////////////////////////////////////////////////
+
+bool GSC_HauntingGround(const GSFrameInfo& fi, int& skip)
+{
+	if(skip == 0)
+	{
+		if(fi.TME && fi.FPSM == fi.TPSM && fi.TPSM == PSM_PSMCT16S && fi.FBMSK == 0x03FFF)
+		{
+			skip = 1;
+		}
+		else if(fi.TME && fi.FBP == 0x3000 && fi.TBP0 == 0x3380)
+		{
+			skip = 1; // bloom
+		}
+		else if(fi.TME && (fi.FBP ==0x2200) && (fi.TBP0 ==0x3a80) && fi.FPSM == fi.TPSM && fi.TPSM == PSM_PSMCT32)
+		{
+			skip = 1;
+		}
+		else if(fi.FBP ==0x2200 && fi.TBP0==0x3000 && fi.TPSM == PSM_PSMT8H && fi.FBMSK == 0)
+		{
+			skip = 1;
+		}
+		else if(fi.TME)
+		{
+			// depth textures (bully, mgs3s1 intro, Front Mission 5)
+			if( (fi.TPSM == PSM_PSMZ32 || fi.TPSM == PSM_PSMZ24 || fi.TPSM == PSM_PSMZ16 || fi.TPSM == PSM_PSMZ16S) ||
+				// General, often problematic post processing
+				(GSUtil::HasSharedBits(fi.FBP, fi.FPSM, fi.TBP0, fi.TPSM)) )
+			{
+				skip = 1;
+			}
+		}
+	}
+
+	return true;
+}
+
+bool GSC_GetaWay(const GSFrameInfo& fi, int& skip)
+{
+	if (skip == 0)
+	{
+		if ((fi.FBP == 0 || fi.FBP == 0x1180) && fi.TPSM == PSM_PSMT8H && fi.FBMSK == 0)
+		{
+			skip = 1; // US version only. Removes fog wall.
+		}
+	}
+
+	return true;
+}
+
+bool GSC_NanoBreaker(const GSFrameInfo& fi, int& skip)
+{
+	if(skip == 0)
+	{
+		if(fi.TME && fi.FBP == 0x0 && fi.FPSM == PSM_PSMCT32 && (fi.TBP0 == 0x03800 || fi.TBP0 == 0x03900) && fi.TPSM == PSM_PSMCT16S)
+		{
+			skip = 2; // Removes shadows
+		}
+	}
+
+	return true;
+}
 
 bool GSC_TalesOfAbyss(const GSFrameInfo& fi, int& skip)
 {
@@ -1328,31 +1281,6 @@ bool GSC_TalesOfAbyss(const GSFrameInfo& fi, int& skip)
 		if(fi.TME && fi.TPSM != PSM_PSMT8)
 		{
 			skip = 0;
-		}
-	}
-
-	return true;
-}
-
-bool GSC_Tekken5(const GSFrameInfo& fi, int& skip)
-{
-	if(skip == 0)
-	{
-		if(fi.TME && (fi.FBP == 0x02d60 || fi.FBP == 0x02d80 || fi.FBP == 0x02ea0 || fi.FBP == 0x03620) && fi.FPSM == fi.TPSM && fi.TBP0 == 0x00000 && fi.TPSM == PSM_PSMCT32)
-		{
-			skip = 95;
-		}
-		else if(fi.TME && (fi.FBP == 0x02bc0 || fi.FBP == 0x02be0 || fi.FBP == 0x02d00) && fi.FPSM == fi.TPSM && fi.TBP0 == 0x00000 && fi.TPSM == PSM_PSMCT32)
-		{
-			skip = 2;
-		}
-		else if(fi.TME)
-		{
-			if( (fi.TPSM == PSM_PSMZ32 || fi.TPSM == PSM_PSMZ24 || fi.TPSM == PSM_PSMZ16 || fi.TPSM == PSM_PSMZ16S) ||
-				(GSUtil::HasSharedBits(fi.FBP, fi.FPSM, fi.TBP0, fi.TPSM)) )
-				{
-					skip = 24;
-				}
 		}
 	}
 
@@ -1394,7 +1322,7 @@ bool GSC_ICO(const GSFrameInfo& fi, int& skip)
 		{
 			skip = 1;
 		}
-		else if( Aggresive && fi.TME && fi.FBP == 0x0800 && (fi.TBP0 == 0x2800 || fi.TBP0 ==0x2c00) && fi.TPSM ==0  && fi.FBMSK == 0)
+		else if(Aggressive && fi.TME && fi.FBP == 0x0800 && (fi.TBP0 == 0x2800 || fi.TBP0 ==0x2c00) && fi.TPSM ==0  && fi.FBMSK == 0)
 		{
 			skip = 1;
 		}
@@ -1415,13 +1343,18 @@ bool GSC_GT4(const GSFrameInfo& fi, int& skip)
 	// Game requires to extract source from RT (block boundary) (texture cache limitation)
 	if(skip == 0)
 	{
-		if(fi.TME && fi.FBP >= 0x02f00 && fi.FPSM == PSM_PSMCT32 && (fi.TBP0 == 0x00000 || fi.TBP0 == 0x01180 /*|| fi.TBP0 == 0x01a40*/) && fi.TPSM == PSM_PSMT8) //TBP0 0x1a40 progressive
+		if(Aggressive)
 		{
-			skip = 770;	//ntsc, progressive 1540
-		}
-		if(g_crc_region == CRC::EU && fi.TME && fi.FBP >= 0x03400 && fi.FPSM == PSM_PSMCT32 && (fi.TBP0 == 0x00000 || fi.TBP0 == 0x01400 ) && fi.TPSM == PSM_PSMT8)
-		{
-			skip = 880;	//pal
+			// Removes layer obscuring the screen when the in-game brightness or contrast setting is set to any value but 0.
+			// The hack can cause VRAM/RAM spikes when both brightness and contrast settings are set to 0.
+			if(fi.TME && fi.FBP >= 0x02f00 && fi.FPSM == PSM_PSMCT32 && (fi.TBP0 == 0x00000 || fi.TBP0 == 0x01180 /*|| fi.TBP0 == 0x01a40*/) && fi.TPSM == PSM_PSMT8) //TBP0 0x1a40 progressive
+			{
+			skip = 770;	// ntsc, progressive 1540
+			}
+			if(g_crc_region == CRC::EU && fi.TME && fi.FBP >= 0x03400 && fi.FPSM == PSM_PSMCT32 && (fi.TBP0 == 0x00000 || fi.TBP0 == 0x01400 ) && fi.TPSM == PSM_PSMT8)
+			{
+			skip = 880;	// pal
+			}
 		}
 		else if(fi.TME && (fi.FBP == 0x00000 || fi.FBP == 0x01400) && fi.FPSM == PSM_PSMCT24 && fi.TBP0 >= 0x03420 && fi.TPSM == PSM_PSMT8)
 		{
@@ -1484,20 +1417,6 @@ bool GSC_SkyGunner(const GSFrameInfo& fi, int& skip)
 	{
 
 		if(!fi.TME && !(fi.FBP == 0x0 || fi.FBP == 0x00800 || fi.FBP == 0x008c0 || fi.FBP == 0x03e00) && fi.FPSM == PSM_PSMCT32 && (fi.TBP0 == 0x0 || fi.TBP0 == 0x01800) && fi.TPSM == PSM_PSMCT32)
-		{
-			skip = 1; //Huge Vram usage
-		}
-	}
-
-	return true;
-}
-
-bool GSC_JamesBondEverythingOrNothing(const GSFrameInfo& fi, int& skip)
-{
-	if(skip == 0)
-	{
-
-		if(fi.TME && (fi.FBP < 0x02000 && !(fi.FBP == 0x0 || fi.FBP == 0x00e00)) && fi.FPSM == PSM_PSMCT32 && (fi.TBP0 > 0x01c00 && fi.TBP0 < 0x03000) && fi.TPSM == PSM_PSMT8)
 		{
 			skip = 1; //Huge Vram usage
 		}
@@ -1586,19 +1505,6 @@ bool GSC_MetalGearSolid3(const GSFrameInfo& fi, int& skip)
 			{
 				skip = 136;	//pal
 			}
-		}
-	}
-
-	return true;
-}
-
-bool GSC_SFEX3(const GSFrameInfo& fi, int& skip)
-{
-	if(skip == 0)
-	{
-		if(fi.TME && fi.FBP == 0x00500 && fi.FPSM == PSM_PSMCT16 && fi.TBP0 == 0x00f00 && fi.TPSM == PSM_PSMCT16)
-		{
-			skip = 2; // blur
 		}
 	}
 
@@ -1725,11 +1631,11 @@ bool GSC_GodOfWar2(const GSFrameInfo& fi, int& skip)
 			{
 					skip = 1; // wall of fog
 			}
-			else if(Aggresive && fi.TPSM == PSM_PSMCT24 && fi.TME && (fi.FBP ==0x1300 ) && (fi.TBP0 ==0x0F00 || fi.TBP0 ==0x1300 || fi.TBP0==0x2b00)) // || fi.FBP == 0x0100
+			else if(Aggressive && fi.TPSM == PSM_PSMCT24 && fi.TME && (fi.FBP ==0x1300 ) && (fi.TBP0 ==0x0F00 || fi.TBP0 ==0x1300 || fi.TBP0==0x2b00)) // || fi.FBP == 0x0100
 			{
 				skip = 1; // global haze/halo
 			}
-			else if(Aggresive && fi.TPSM == PSM_PSMCT24 && fi.TME && (fi.FBP ==0x0100 ) && (fi.TBP0==0x2b00 || fi.TBP0==0x2e80)) //480P 2e80
+			else if(Aggressive && fi.TPSM == PSM_PSMCT24 && fi.TME && (fi.FBP ==0x0100 ) && (fi.TBP0==0x2b00 || fi.TBP0==0x2e80)) // 480P 2e80
 			{
 				skip = 1; // water effect and water vertical lines
 			}
@@ -1764,26 +1670,6 @@ bool GSC_SonicUnleashed(const GSFrameInfo& fi, int& skip)
 	else
 	{
 		if(fi.TME && fi.FBP == 0x00000 && fi.FPSM == PSM_PSMCT16 && fi.TPSM == PSM_PSMCT16S)
-		{
-			skip = 2;
-		}
-	}
-
-	return true;
-}
-
-bool GSC_SimpsonsGame(const GSFrameInfo& fi, int& skip)
-{
-	if(skip == 0)
-	{
-		if(fi.TME && fi.FBP == fi.TBP0 && fi.FPSM == fi.TPSM && fi.TBP0 == 0x03000 && fi.TPSM == PSM_PSMCT32)
-		{
-			skip = 100;
-		}
-	}
-	else
-	{
-		if(fi.TME && fi.FBP == 0x03000 && fi.FPSM == PSM_PSMCT32 && fi.TPSM == PSM_PSMT8H)
 		{
 			skip = 2;
 		}
@@ -2150,9 +2036,44 @@ bool GSC_Grandia3(const GSFrameInfo& fi, int& skip)
 	return true;
 }
 
+bool GSC_GTASanAndreas(const GSFrameInfo& fi, int& skip)
+{
+	if(skip == 0)
+	{
+		if(fi.TME && (fi.FBP ==0x0a00 || fi.FBP ==0x08c0) && (fi.TBP0 ==0x1b80 || fi.TBP0 ==0x1a40) && fi.FPSM == fi.TPSM && fi.TPSM == PSM_PSMCT32)
+		{
+			skip = 1;
+		}
+	}
+
+	return true;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
-// Aggresive only hack
+// Aggressive only hack
 ////////////////////////////////////////////////////////////////////////////////
+
+bool GSC_AceCombat4(const GSFrameInfo& fi, int& skip)
+{
+	// Removes clouds for a good speed boost, removes both 3D clouds(invisible with Hardware renderers, but cause slowdown) and 2D background clouds.
+	// Removes blur from player airplane.
+	// This hack also removes rockets, shows explosions(invisible without CRC hack) as garbage data,
+	// causes flickering issues with the HUD, and in some (night) missions removes the HUD altogether.
+
+	if (Aggressive && skip == 0)
+	{
+		if (fi.TME && fi.FBP == 0x02a00 && fi.FPSM == PSM_PSMZ24 && fi.TBP0 == 0x01600 && fi.TPSM == PSM_PSMZ24)
+		{
+			skip = 71; // clouds (z, 16-bit)
+		}
+		/*else if (fi.TME && fi.FBP == 0x02900 && fi.FPSM == PSM_PSMCT32 && fi.TBP0 == 0x00000 && fi.TPSM == PSM_PSMCT24)
+		{
+		skip = 28; // blur (seems applied by the above hack)
+		}*/
+	}
+
+	return true;
+}
 
 template<uptr state_addr>
 bool GSC_SMTNocturneDDS(const GSFrameInfo& fi, int& skip)
@@ -2161,10 +2082,10 @@ bool GSC_SMTNocturneDDS(const GSFrameInfo& fi, int& skip)
 	// smudge filter from being drawn on USA versions of
 	// Nocturne, Digital Devil Saga 1 and Digital Devil Saga 2
 
-	if(Aggresive && g_crc_region == CRC::US && skip == 0 && fi.TBP0 == 0xE00 && fi.TME)
+	if(Aggressive && g_crc_region == CRC::US && skip == 0 && fi.TBP0 == 0xE00 && fi.TME)
 	{
 		// Note: it will crash if the core doesn't allocate the EE mem in 0x2000_0000 (unlikely but possible)
-		// Aggresive hacks are evil anyway
+		// Aggressive hacks are evil anyway
 
 		// Nocturne:
 		// -0x5900($gp), ref at 0x100740
@@ -2177,7 +2098,7 @@ bool GSC_SMTNocturneDDS(const GSFrameInfo& fi, int& skip)
 
 bool GSC_LegoBatman(const GSFrameInfo& fi, int& skip)
 {
-	if(Aggresive && skip == 0)
+	if(Aggressive && skip == 0)
 	{
 		if(fi.TME && fi.TPSM == PSM_PSMZ16 && fi.FPSM == PSM_PSMCT16 && fi.FBMSK == 0x00000)
 		{
@@ -2192,7 +2113,7 @@ bool GSC_SoTC(const GSFrameInfo& fi, int& skip)
             // Not needed anymore? What did it fix anyway? (rama)
     if(skip == 0)
     {
-            if(Aggresive && fi.TME /*&& fi.FBP == 0x03d80*/ && fi.FPSM == 0 && fi.TBP0 == 0x03fc0 && fi.TPSM == 1)
+            if(Aggressive && fi.TME /*&& fi.FBP == 0x03d80*/ && fi.FPSM == 0 && fi.TBP0 == 0x03fc0 && fi.TPSM == 1)
             {
                     skip = 48;	//removes sky bloom
             }
@@ -2211,16 +2132,12 @@ bool GSC_SoTC(const GSFrameInfo& fi, int& skip)
             }*/
     }
 
-
-
-
-
 	return true;
 }
 
 bool GSC_FFXII(const GSFrameInfo& fi, int& skip)
 {
-	if(Aggresive && skip == 0)
+	if(Aggressive && skip == 0)
 	{
 		if(fi.TME)
 		{
@@ -2238,7 +2155,7 @@ bool GSC_FFXII(const GSFrameInfo& fi, int& skip)
 
 bool GSC_FFX2(const GSFrameInfo& fi, int& skip)
 {
-	if(Aggresive && skip == 0)
+	if(Aggressive && skip == 0)
 	{
 		if(fi.TME)
 		{
@@ -2256,7 +2173,7 @@ bool GSC_FFX2(const GSFrameInfo& fi, int& skip)
 
 bool GSC_FFX(const GSFrameInfo& fi, int& skip)
 {
-	if(Aggresive && skip == 0)
+	if(Aggressive && skip == 0)
 	{
 		if(fi.TME)
 		{
@@ -2272,9 +2189,42 @@ bool GSC_FFX(const GSFrameInfo& fi, int& skip)
 	return true;
 }
 
+bool GSC_ResidentEvil4(const GSFrameInfo& fi, int& skip)
+{
+	if (Aggressive && skip == 0)
+	{
+		if (fi.TME && fi.FBP == 0x03100 && fi.FPSM == PSM_PSMCT32 && fi.TBP0 == 0x01c00 && fi.TPSM == PSM_PSMZ24)
+		{
+			skip = 176; // Removes fog, but no longer required, does offer a decent speed boost.
+		}
+		else if (fi.TME && fi.FBP == 0x03100 && (fi.TBP0 == 0x2a00 || fi.TBP0 == 0x3480) && fi.TPSM == PSM_PSMCT32 && fi.FBMSK == 0)
+		{
+			//skip = 1; // Disabled as it doesn't seem to fix any issue, doesn't offer a further speed boost, and it creates an offset regression in fire effects.
+		}
+	}
+
+	return true;
+}
+
+bool GSC_SimpsonsGame(const GSFrameInfo& fi, int& skip)
+{
+	if(Aggressive && skip == 0)
+	{
+		if(fi.TME && fi.FBP == 0x03000 && fi.FPSM == PSM_PSMCT32 && fi.TPSM == PSM_PSMT8H)
+		{
+			// Removes character outlines, similar to DBZ BT3.
+			// Upscaling causes the outlines to be out of place but can be fixed with TC Offsets.
+			// The hack can be used to increase slight performance.
+			skip = 2;
+		}
+	}
+
+	return true;
+}
+
 bool GSC_SSX3(const GSFrameInfo& fi, int& skip)
 {
-	if(Aggresive && skip == 0)
+	if(Aggressive && skip == 0)
 	{
 		if(fi.TME)
 		{
@@ -2293,7 +2243,7 @@ bool GSC_SSX3(const GSFrameInfo& fi, int& skip)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#undef Agressive
+#undef Aggressive
 
 #ifdef ENABLE_DYNAMIC_CRC_HACK
 
@@ -2308,15 +2258,15 @@ bool GSC_SSX3(const GSFrameInfo& fi, int& skip)
 class AutoReloadLibrary
 {
 private:
-	string	m_dllPath, m_loadedDllPath;
+	std::string	m_dllPath, m_loadedDllPath;
 	DWORD	m_minMsBetweenProbes;
 	time_t	m_lastFileModification;
 	DWORD	m_lastProbe;
 	HMODULE	m_library;
 
-	string	GetTempName()
+	std::string	GetTempName()
 	{
-		string result = m_loadedDllPath + ".tmp"; //default name
+		std::string result = m_loadedDllPath + ".tmp"; //default name
 		TCHAR tmpPath[MAX_PATH], tmpName[MAX_PATH];
 		DWORD ret = GetTempPath(MAX_PATH, tmpPath);
 		if(ret && ret <= MAX_PATH && GetTempFileName(tmpPath, TEXT("GSdx"), 0, tmpName))
@@ -2339,7 +2289,7 @@ private:
 	}
 
 public:
-	AutoReloadLibrary( const string dllPath, const int minMsBetweenProbes=100 )
+	AutoReloadLibrary( const std::string dllPath, const int minMsBetweenProbes=100 )
 		: m_minMsBetweenProbes( minMsBetweenProbes )
 		, m_dllPath( dllPath )
 		, m_lastFileModification( 0 )
@@ -2435,13 +2385,12 @@ void GSState::SetupCrcHack()
 {
 	GetSkipCount lut[CRC::TitleCount];
 
-	s_crc_hack_level = theApp.GetConfigI("crc_hack_level");
+	s_crc_hack_level = m_crc_hack_level;
 
 	memset(lut, 0, sizeof(lut));
 
-	if (s_crc_hack_level > 1) {
+	if (Dx_and_OGL) {
 		lut[CRC::AceCombat4] = GSC_AceCombat4;
-		lut[CRC::AlpineRacer3] = GSC_AlpineRacer3;
 		lut[CRC::BlackHawkDown] = GSC_BlackHawkDown;
 		lut[CRC::BleachBladeBattlers] = GSC_BleachBladeBattlers;
 		lut[CRC::BurnoutDominator] = GSC_Burnout;
@@ -2454,17 +2403,12 @@ void GSState::SetupCrcHack()
 		lut[CRC::DevilMayCry3] = GSC_DevilMayCry3;
 		lut[CRC::EternalPoison] = GSC_EternalPoison;
 		lut[CRC::EvangelionJo] = GSC_EvangelionJo;
-		lut[CRC::FFVIIDoC] = GSC_FFVIIDoC;
 		lut[CRC::FightingBeautyWulong] = GSC_FightingBeautyWulong;
 		lut[CRC::FinalFightStreetwise] = GSC_FinalFightStreetwise;
 		lut[CRC::FrontMission5] = GSC_FrontMission5;
 		lut[CRC::Genji] = GSC_Genji;
-		lut[CRC::GetaWayBlackMonday] = GSC_GetaWay;
-		lut[CRC::GetaWay] = GSC_GetaWay;
 		lut[CRC::GiTS] = GSC_GiTS;
 		lut[CRC::GodHand] = GSC_GodHand;
-		lut[CRC::GTASanAndreas] = GSC_GTASanAndreas;
-		lut[CRC::HauntingGround] = GSC_HauntingGround;
 		lut[CRC::HeavyMetalThunder] = GSC_HeavyMetalThunder;
 		lut[CRC::HummerBadlands] = GSC_HummerBadlands;
 		lut[CRC::IkkiTousen] = GSC_IkkiTousen;
@@ -2473,13 +2417,11 @@ void GSState::SetupCrcHack()
 		lut[CRC::LordOfTheRingsThirdAge] = GSC_LordOfTheRingsThirdAge;
 		lut[CRC::Manhunt2] = GSC_Manhunt2;
 		lut[CRC::MidnightClub3] = GSC_MidnightClub3;
-		lut[CRC::NanoBreaker] = GSC_NanoBreaker;
 		lut[CRC::NarutimateAccel] = GSC_NarutimateAccel;
 		lut[CRC::Naruto] = GSC_Naruto;
 		lut[CRC::Oneechanbara2Special] = GSC_Oneechanbara2Special;
 		lut[CRC::Onimusha3] = GSC_Onimusha3;
 		lut[CRC::RedDeadRevolver] = GSC_RedDeadRevolver;
-		lut[CRC::ResidentEvil4] = GSC_ResidentEvil4;
 		lut[CRC::SacredBlaze] = GSC_SacredBlaze;
 		lut[CRC::SakuraTaisen] = GSC_SakuraTaisen;
 		lut[CRC::SakuraWarsSoLongMyLove] = GSC_SakuraWarsSoLongMyLove;
@@ -2492,8 +2434,10 @@ void GSState::SetupCrcHack()
 		lut[CRC::Spartan] = GSC_Spartan;
 		lut[CRC::StarWarsForceUnleashed] = GSC_StarWarsForceUnleashed;
 		lut[CRC::SteambotChronicles] = GSC_SteambotChronicles;
+		lut[CRC::SFEX3] = GSC_SFEX3;
 		lut[CRC::TalesOfLegendia] = GSC_TalesOfLegendia;
 		lut[CRC::TalesofSymphonia] = GSC_TalesofSymphonia;
+		lut[CRC::Tekken5] = GSC_Tekken5;
 		lut[CRC::TimeSplitters2] = GSC_TimeSplitters2;
 		lut[CRC::TombRaiderAnniversary] = GSC_TombRaider;
 		lut[CRC::TombRaiderLegend] = GSC_TombRaiderLegend;
@@ -2505,10 +2449,16 @@ void GSState::SetupCrcHack()
 		lut[CRC::Yakuza2] = GSC_Yakuza2;
 		lut[CRC::Yakuza] = GSC_Yakuza;
 		lut[CRC::ZettaiZetsumeiToshi2] = GSC_ZettaiZetsumeiToshi2;
-		// Only Aggresive
+		// These games emulate a stencil buffer with the alpha channel of the RT (too slow to move to DX only)
+		lut[CRC::RadiataStories] = GSC_RadiataStories;
+		lut[CRC::StarOcean3] = GSC_StarOcean3;
+		lut[CRC::ValkyrieProfile2] = GSC_ValkyrieProfile2;
+		// Only Aggressive
+		lut[CRC::ResidentEvil4] = GSC_ResidentEvil4;
 		lut[CRC::FFX2] = GSC_FFX2;
 		lut[CRC::FFX] = GSC_FFX;
 		lut[CRC::FFXII] = GSC_FFXII;
+		lut[CRC::SimpsonsGame] = GSC_SimpsonsGame;
 		lut[CRC::SMTDDS1] = GSC_SMTNocturneDDS<0x203BA820>;
 		lut[CRC::SMTDDS2] = GSC_SMTNocturneDDS<0x20435BF0>;
 		lut[CRC::SMTNocturne] = GSC_SMTNocturneDDS<0x2054E870>;
@@ -2525,9 +2475,11 @@ void GSState::SetupCrcHack()
 		lut[CRC::ICO] = GSC_ICO;
 		lut[CRC::LordOfTheRingsTwoTowers] = GSC_LordOfTheRingsTwoTowers;
 		lut[CRC::Okami] = GSC_Okami;
-		lut[CRC::SimpsonsGame] = GSC_SimpsonsGame;
 		lut[CRC::SuikodenTactics] = GSC_SuikodenTactics;
 		lut[CRC::XE3] = GSC_XE3;
+
+		// Depth + Texture cache issue + Date (AKA a real mess)
+		lut[CRC::HauntingGround] = GSC_HauntingGround;
 
 		// Not tested but must be fixed with texture shuffle
 		lut[CRC::BigMuthaTruckers] = GSC_BigMuthaTruckers;
@@ -2536,7 +2488,6 @@ void GSState::SetupCrcHack()
 		lut[CRC::LegoBatman] = GSC_LegoBatman;
 		lut[CRC::OnePieceGrandAdventure] = GSC_OnePieceGrandAdventure;
 		lut[CRC::OnePieceGrandBattle] = GSC_OnePieceGrandBattle;
-		lut[CRC::SFEX3] = GSC_SFEX3;
 		lut[CRC::SpyroEternalNight] = GSC_SpyroEternalNight;
 		lut[CRC::SpyroNewBeginning] = GSC_SpyroNewBeginning;
 		lut[CRC::SonicUnleashed] = GSC_SonicUnleashed;
@@ -2552,11 +2503,6 @@ void GSState::SetupCrcHack()
 		lut[CRC::CastlevaniaLoI] = GSC_Castlevania;
 		lut[CRC::GodOfWar] = GSC_GodOfWar;
 
-		// Those games emulate a stencil buffer with the alpha channel of the RT (Slow)
-		lut[CRC::RadiataStories] = GSC_RadiataStories;
-		lut[CRC::StarOcean3] = GSC_StarOcean3;
-		lut[CRC::ValkyrieProfile2] = GSC_ValkyrieProfile2;
-
 		// Deprecated hack could be removed (Cutie)
 		lut[CRC::Grandia3] = GSC_Grandia3;
 
@@ -2566,18 +2512,26 @@ void GSState::SetupCrcHack()
 
 		// Channel Effect
 		lut[CRC::DeathByDegreesTekkenNinaWilliams] = GSC_DeathByDegreesTekkenNinaWilliams;
-		lut[CRC::JamesBondEverythingOrNothing] = GSC_JamesBondEverythingOrNothing;
 		lut[CRC::MetalGearSolid3] = GSC_MetalGearSolid3; // + accurate blending
 		lut[CRC::SkyGunner] = GSC_SkyGunner;
 		lut[CRC::StarWarsBattlefront2] = GSC_StarWarsBattlefront2;
 		lut[CRC::StarWarsBattlefront] = GSC_StarWarsBattlefront;
 		// Dedicated shader for channel effect
 		lut[CRC::TouristTrophy] = GSC_TouristTrophy;
-		lut[CRC::GT3] = GSC_GT3;
 		lut[CRC::GT4] = GSC_GT4;
+		lut[CRC::GT3] = GSC_GT3;
 		lut[CRC::GTConcept] = GSC_GTConcept;
 		lut[CRC::TalesOfAbyss] = GSC_TalesOfAbyss;
-		lut[CRC::Tekken5] = GSC_Tekken5;
+
+		// RW frame buffer. UserHacks_AutoFlush allow to emulate it correctly
+		lut[CRC::GTASanAndreas] = GSC_GTASanAndreas;
+
+		// Can be fixed by setting Blending Unit Accuracy to at least High.
+		lut[CRC::GetaWayBlackMonday] = GSC_GetaWay;
+		lut[CRC::GetaWay] = GSC_GetaWay;
+
+		// Accumulation blend
+		lut[CRC::NanoBreaker] = GSC_NanoBreaker;
 	}
 
 	m_gsc = lut[m_game.title];

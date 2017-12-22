@@ -30,7 +30,7 @@ GSTexture* GSDevice9::CreateMskFix(uint32 size, uint32 msk, uint32 fix)
 
 	uint32 hash = (size << 20) | (msk << 10) | fix;
 
-	hash_map<uint32, GSTexture*>::iterator i = m_mskfix.find(hash);
+	auto i = m_mskfix.find(hash);
 
 	if(i != m_mskfix.end())
 	{
@@ -63,11 +63,11 @@ GSTexture* GSDevice9::CreateMskFix(uint32 size, uint32 msk, uint32 fix)
 
 void GSDevice9::SetupVS(VSSelector sel, const VSConstantBuffer* cb)
 {
-	hash_map<uint32, GSVertexShader9>::const_iterator i = m_vs.find(sel);
+	auto i = std::as_const(m_vs).find(sel);
 
 	if(i == m_vs.end())
 	{
-		string str[5];
+		std::string str[5];
 
 		str[0] = format("%d", sel.bppz);
 		str[1] = format("%d", sel.tme);
@@ -96,9 +96,9 @@ void GSDevice9::SetupVS(VSSelector sel, const VSConstantBuffer* cb)
 
 		GSVertexShader9 vs;
 
-		vector<unsigned char> shader;
+		std::vector<char> shader;
 		theApp.LoadResource(IDR_TFX_FX, shader);
-		CompileShader((const char *)shader.data(), shader.size(), "tfx.fx", "vs_main", macro, &vs.vs, layout, countof(layout), &vs.il);
+		CompileShader(shader.data(), shader.size(), "tfx.fx", "vs_main", macro, &vs.vs, layout, countof(layout), &vs.il);
 
 		m_vs[sel] = vs;
 
@@ -133,11 +133,11 @@ void GSDevice9::SetupPS(PSSelector sel, const PSConstantBuffer* cb, PSSamplerSel
 		}
 	}
 
-	hash_map<uint32, CComPtr<IDirect3DPixelShader9> >::const_iterator i = m_ps.find(sel);
+	auto i = std::as_const(m_ps).find(sel);
 
 	if(i == m_ps.end())
 	{
-		string str[17];
+		std::string str[18];
 
 		str[0] = format("%d", sel.fst);
 		str[1] = format("%d", sel.wms);
@@ -156,6 +156,7 @@ void GSDevice9::SetupPS(PSSelector sel, const PSConstantBuffer* cb, PSSamplerSel
 		str[14] = format("%d", sel.spritehack);
 		str[15] = format("%d", sel.tcoffsethack);
 		str[16] = format("%d", sel.point_sampler);
+		str[17] = format("%d", sel.fmt >> 2);
 
 		D3D_SHADER_MACRO macro[] =
 		{
@@ -176,14 +177,15 @@ void GSDevice9::SetupPS(PSSelector sel, const PSConstantBuffer* cb, PSSamplerSel
 			{"PS_SPRITEHACK", str[14].c_str()},
 			{"PS_TCOFFSETHACK", str[15].c_str()},
 			{"PS_POINT_SAMPLER", str[16].c_str()},
+			{"PS_PAL_FMT", str[17].c_str()},
 			{NULL, NULL},
 		};
 
 		CComPtr<IDirect3DPixelShader9> ps;
 
-		vector<unsigned char> shader;
+		std::vector<char> shader;
 		theApp.LoadResource(IDR_TFX_FX, shader);
-		CompileShader((const char *)shader.data(), shader.size(), "tfx.fx", "ps_main", macro, &ps);
+		CompileShader(shader.data(), shader.size(), "tfx.fx", "ps_main", macro, &ps);
 
 		m_ps[sel] = ps;
 
@@ -201,7 +203,7 @@ void GSDevice9::SetupPS(PSSelector sel, const PSConstantBuffer* cb, PSSamplerSel
 			ssel.ltf = 0;
 		}
 
-		hash_map<uint32, Direct3DSamplerState9* >::const_iterator i = m_ps_ss.find(ssel);
+		auto i = std::as_const(m_ps_ss).find(ssel);
 
 		if(i != m_ps_ss.end())
 		{
@@ -238,7 +240,7 @@ void GSDevice9::SetupOM(OMDepthStencilSelector dssel, OMBlendSelector bsel, uint
 {
 	Direct3DDepthStencilState9* dss = NULL;
 
-	hash_map<uint32, Direct3DDepthStencilState9*>::const_iterator i = m_om_dss.find(dssel);
+	auto i = std::as_const(m_om_dss).find(dssel);
 
 	if(i == m_om_dss.end())
 	{
@@ -280,7 +282,7 @@ void GSDevice9::SetupOM(OMDepthStencilSelector dssel, OMBlendSelector bsel, uint
 
 	OMSetDepthStencilState(i->second);
 
-	hash_map<uint32, Direct3DBlendState9*>::const_iterator j = m_om_bs.find(bsel);
+	auto j = std::as_const(m_om_bs).find(bsel);
 
 	if(j == m_om_bs.end())
 	{
@@ -321,7 +323,7 @@ void GSDevice9::SetupOM(OMDepthStencilSelector dssel, OMBlendSelector bsel, uint
 			{
 				(bsel.a == 0 ? bs->SrcBlend : bs->DestBlend) = D3DBLEND_ONE;
 
-				const string afixstr = format("%d >> 7", afix);
+				const std::string afixstr = format("%d >> 7", afix);
 				const char *col[3] = {"Cs", "Cd", "0"};
 				const char *alpha[3] = {"As", "Ad", afixstr.c_str()};
 

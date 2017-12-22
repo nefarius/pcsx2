@@ -51,7 +51,7 @@ namespace Panels
 	public:
 		DirPickerPanel( wxWindow* parent, FoldersEnum_t folderid, const wxString& label, const wxString& dialogLabel );
 		DirPickerPanel( wxWindow* parent, FoldersEnum_t folderid, const wxString& dialogLabel );
-		virtual ~DirPickerPanel() throw() { }
+		virtual ~DirPickerPanel() = default;
 
 		void Reset();
 		wxDirName GetPath() const;
@@ -89,7 +89,7 @@ namespace Panels
 		DirPickerPanel*	m_dirpicker_custom;
 
 	public:
-		virtual ~DocsFolderPickerPanel() throw() { }
+		virtual ~DocsFolderPickerPanel() = default;
 		DocsFolderPickerPanel( wxWindow* parent, bool isFirstTime = true );
 
 		void Apply();
@@ -109,7 +109,7 @@ namespace Panels
 		wxComboBox*		m_picker;
 
 	public:
-		virtual ~LanguageSelectionPanel() throw() { }
+		virtual ~LanguageSelectionPanel() = default;
 		LanguageSelectionPanel( wxWindow* parent, bool showApply = true );
 
 		void Apply();
@@ -135,7 +135,7 @@ namespace Panels
 
 	public:
 		BaseAdvancedCpuOptions( wxWindow* parent );
-		virtual ~BaseAdvancedCpuOptions() throw() { }
+		virtual ~BaseAdvancedCpuOptions() = default;
 
 		void RestoreDefaults();
 
@@ -151,7 +151,7 @@ namespace Panels
 	{
 	public:
 		AdvancedOptionsFPU( wxWindow* parent );
-		virtual ~AdvancedOptionsFPU() throw() { }
+		virtual ~AdvancedOptionsFPU() = default;
 		void Apply();
 		void AppStatusEvent_OnSettingsApplied();
 		void ApplyConfigToGui( AppConfig& configToApply, int flags=0 );
@@ -161,7 +161,7 @@ namespace Panels
 	{
 	public:
 		AdvancedOptionsVU( wxWindow* parent );
-		virtual ~AdvancedOptionsVU() throw() { }
+		virtual ~AdvancedOptionsVU() = default;
 		void Apply();
 		void AppStatusEvent_OnSettingsApplied();
 		void ApplyConfigToGui( AppConfig& configToApply, int flags=0 );
@@ -182,7 +182,7 @@ namespace Panels
 
 	public:
 		CpuPanelEE( wxWindow* parent );
-		virtual ~CpuPanelEE() throw() {}
+		virtual ~CpuPanelEE() = default;
 
 		void Apply();
 		void AppStatusEvent_OnSettingsApplied();
@@ -203,7 +203,7 @@ namespace Panels
 
 	public:
 		CpuPanelVU( wxWindow* parent );
-		virtual ~CpuPanelVU() throw() {}
+		virtual ~CpuPanelVU() = default;
 
 		void Apply();
 		void AppStatusEvent_OnSettingsApplied();
@@ -226,7 +226,7 @@ namespace Panels
 
 	public:
 		FrameSkipPanel( wxWindow* parent );
-		virtual	~FrameSkipPanel() throw() {}
+		virtual	~FrameSkipPanel() = default;
 
 		void Apply();
 		void AppStatusEvent_OnSettingsApplied();
@@ -253,7 +253,7 @@ namespace Panels
 
 	public:
 		FramelimiterPanel( wxWindow* parent );
-		virtual ~FramelimiterPanel() throw() {}
+		virtual ~FramelimiterPanel() = default;
 
 		void Apply();
 		void AppStatusEvent_OnSettingsApplied();
@@ -267,6 +267,7 @@ namespace Panels
 	{
 	protected:
 		wxComboBox*		m_combo_AspectRatio;
+		wxComboBox*		m_combo_vsync;
 
 		wxTextCtrl*		m_text_Zoom;
 
@@ -293,7 +294,7 @@ namespace Panels
 
 	public:
 		GSWindowSettingsPanel( wxWindow* parent );
-		virtual ~GSWindowSettingsPanel() throw() {}
+		virtual ~GSWindowSettingsPanel() = default;
 		void Apply();
 		void AppStatusEvent_OnSettingsApplied();
 		void ApplyConfigToGui( AppConfig& configToApply, int flags=0 );
@@ -303,15 +304,17 @@ namespace Panels
 	{
 	protected:
 		pxCheckBox*			m_check_SynchronousGS;
+		wxButton*			m_restore_defaults;
 		pxCheckBox*			m_check_DisableOutput;
 		FrameSkipPanel*		m_span;
 		FramelimiterPanel*	m_fpan;
 
 	public:
 		VideoPanel( wxWindow* parent );
-		virtual ~VideoPanel() throw() {}
+		virtual ~VideoPanel() = default;
 		void Apply();
 		void AppStatusEvent_OnSettingsApplied();
+		void Defaults_Click(wxCommandEvent& evt);
 		void ApplyConfigToGui( AppConfig& configToApply, int flags=0 );
 
 	protected:
@@ -343,7 +346,7 @@ namespace Panels
 		pxCheckBox*		m_check_vuThread;
 
 	public:
-		virtual ~SpeedHacksPanel() throw() {}
+		virtual ~SpeedHacksPanel() = default;
 		SpeedHacksPanel( wxWindow* parent );
 		void Apply();
 		void EnableStuff( AppConfig* configToUse=NULL );
@@ -355,6 +358,7 @@ namespace Panels
 		const wxChar* GetVUcycleSliderMsg( int val );
 		void SetEEcycleSliderMsg();
 		void SetVUcycleSliderMsg();
+		void TrigLayout();
 
 		void OnEnable_Toggled( wxCommandEvent& evt );
 		void Defaults_Click( wxCommandEvent& evt );
@@ -373,7 +377,7 @@ namespace Panels
 
 	public:
 		GameFixesPanel( wxWindow* parent );
-		virtual ~GameFixesPanel() throw() { }
+		virtual ~GameFixesPanel() = default;
 		void EnableStuff( AppConfig* configToUse=NULL );
 		void OnEnable_Toggled( wxCommandEvent& evt );
 		void Apply();
@@ -401,7 +405,7 @@ namespace Panels
 
 	public:
 		GameDatabasePanel( wxWindow* parent );
-		virtual ~GameDatabasePanel() throw() { }
+		virtual ~GameDatabasePanel() = default;
 		void Apply();
 		void AppStatusEvent_OnSettingsApplied();
 
@@ -409,6 +413,10 @@ namespace Panels
 		void PopulateFields( const wxString& serial=wxEmptyString );
 		bool WriteFieldsToDB();
 		void Search_Click( wxCommandEvent& evt );
+
+	private:
+		void placeTextBox(wxFlexGridSizer& sizer1, wxTextCtrl* wxBox, const wxString& txt);
+		void blankLine(wxFlexGridSizer& sizer1);
 	};
 
 	class SettingsDirPickerPanel : public DirPickerPanel
@@ -435,21 +443,6 @@ namespace Panels
 	};
 
 	// --------------------------------------------------------------------------------------
-	//  AppearanceThemesPanel
-	// --------------------------------------------------------------------------------------
-	class AppearanceThemesPanel : public BaseApplicableConfigPanel
-	{
-		typedef BaseApplicableConfigPanel _parent;
-
-	public:
-		virtual ~AppearanceThemesPanel() throw();
-		AppearanceThemesPanel( wxWindow* parent );
-
-		void Apply();
-		void AppStatusEvent_OnSettingsApplied();
-	};
-
-	// --------------------------------------------------------------------------------------
 	//  BaseSelectorPanel
 	// --------------------------------------------------------------------------------------
 	class BaseSelectorPanel: public BaseApplicableConfigPanel
@@ -457,7 +450,7 @@ namespace Panels
 		typedef BaseApplicableConfigPanel _parent;
 
 	public:
-		virtual ~BaseSelectorPanel() throw();
+		virtual ~BaseSelectorPanel() = default;
 		BaseSelectorPanel( wxWindow* parent );
 
 		virtual void RefreshSelections();
@@ -500,7 +493,7 @@ namespace Panels
 		DirPickerPanel* m_FolderPicker;
 
 	public:
-		virtual ~ThemeSelectorPanel() throw();
+		virtual ~ThemeSelectorPanel();
 		ThemeSelectorPanel( wxWindow* parent );
 
 	protected:
@@ -522,7 +515,7 @@ namespace Panels
 
 	public:
 		BiosSelectorPanel( wxWindow* parent );
-		virtual ~BiosSelectorPanel() throw();
+		virtual ~BiosSelectorPanel() = default;
 
 	protected:
 		virtual void Apply();
@@ -558,13 +551,13 @@ namespace Panels
 		class EnumThread : public Threading::pxThread
 		{
 		public:
-			SafeList<EnumeratedPluginInfo> Results;		// array of plugin results.
+			std::vector<EnumeratedPluginInfo> Results;		// array of plugin results.
 
 		protected:
 			PluginSelectorPanel&	m_master;
 			ScopedBusyCursor		m_hourglass;
 		public:
-			virtual ~EnumThread() throw()
+			virtual ~EnumThread()
 			{
 				try {
 					pxThread::Cancel();
@@ -627,7 +620,7 @@ namespace Panels
 		std::unique_ptr<EnumThread>		m_EnumeratorThread;
 
 	public:
-		virtual ~PluginSelectorPanel() throw();
+		virtual ~PluginSelectorPanel();
 		PluginSelectorPanel( wxWindow* parent );
 
 		void CancelRefresh();		// used from destructor, stays non-virtual

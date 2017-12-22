@@ -402,6 +402,14 @@ void cdvdReloadElfInfo(wxString elfoverride)
 					)
 				);
 				//Console.Error( "Playstation1 game discs are not supported by PCSX2." );
+
+			// PCSX2 currently only recognizes *.elf executables in proper PS2 format.
+			// To support different PSX titles in the console title and for savestates, this code bypasses all the detection,
+			// simply using the exe name, stripped of problematic characters.
+			wxString fname = elfpath.AfterLast('\\').AfterLast(':'); // Also catch elf paths which lack a backslash, and only have a colon.
+			wxString fname2 = fname.BeforeFirst(';');
+			DiscSerial = fname2;
+			Console.SetTitle(DiscSerial);
 			return;
 		}
 		
@@ -421,7 +429,11 @@ void cdvdReloadElfInfo(wxString elfoverride)
 static __fi s32 StrToS32(const wxString& str, int base = 10)
 {
     long l;
-    str.ToLong(&l, base);
+    if (!str.ToLong(&l, base)) {
+		Console.Error(L"StrToS32: fail to translate '%s' as long", WX_STR(str));
+		return 0;
+	}
+
     return l;
 }
 
@@ -878,7 +890,9 @@ __fi void cdvdReadInterrupt()
 
 	if (--cdvd.nSectors <= 0)
 	{
-		cdvd.PwOff |= 1<<Irq_CommandComplete;
+		// Setting the data ready flag fixes a black screen loading issue in
+		// Street Fighter Ex3 (NTSC-J version).
+		cdvd.PwOff |= (1 << Irq_DataReady) | (1 << Irq_CommandComplete);
 		psxHu32(0x1070)|= 0x4;
 
 		HW_DMA3_CHCR &= ~0x01000000;
@@ -963,7 +977,7 @@ u8 monthmap[13] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 
 void cdvdVsync() {
 	cdvd.RTCcount++;
-	if (cdvd.RTCcount < ((gsVideoMode == GS_VideoMode::NTSC) ? 60 : 50)) return;
+	if (cdvd.RTCcount < (GetVerticalFrequency().ToIntRounded())) return;
 	cdvd.RTCcount = 0;
 
 	if ( cdvd.Status == CDVD_STATUS_TRAY_OPEN )
@@ -1036,9 +1050,9 @@ u8 cdvdRead(u8 key)
 			CDVD_LOG("cdvdRead07(Break) %x", 0);
 			return 0;
 
-		case 0x08:  // STATUS
-			CDVD_LOG("cdvdRead08(Status) %x", cdvd.Status);
-			return cdvd.Status;
+		case 0x08:  // INTR_STAT
+			CDVD_LOG("cdvdRead08(IntrReason) %x", cdvd.PwOff);
+			return cdvd.PwOff;
 
 		case 0x0A:  // STATUS
 			CDVD_LOG("cdvdRead0A(Status) %x", cdvd.Status);
@@ -1399,7 +1413,7 @@ static __fi void cdvdWrite0F(u8 rt) { // TYPE
 	DevCon.WriteLn("*PCSX2*: CDVD TYPE %x", rt);
 }
 
-static __fi void cdvdWrite14(u8 rt) { // PS1 MODE??
+static __fi void cdvdWrite14(u8 rt) { // PS1 MODE?? // This should be done in the SBUS_F240 bit 19 write in HwWrite.cpp
 	u32 cycle = psxRegs.cycle;
 
 	if (rt == 0xFE)
@@ -2036,10 +2050,10 @@ static void cdvdWrite16(u8 rt)		 // SCOMMAND
 		//Console.WriteLn("SCMD - 0x%x\n", rt);
 		cdvd.ParamP = 0;
 		cdvd.ParamC = 0;
-	} catch (Exception::CannotCreateStream& ex) {
+	} catch (Exception::CannotCreateStream&) {
 		Cpu->ThrowException(Exception::RuntimeError()
-				.SetDiagMsg(L"Failed to read/write NMV/MEC file.")
-				.SetUserMsg(pxE( L"Failed to read/write NMV/MEC file. Check your bios setup/permission settings"))
+				.SetDiagMsg(L"Failed to read/write NVM/MEC file.")
+				.SetUserMsg(pxE( L"Failed to read/write NVM/MEC file. Check your BIOS setup/permission settings."))
 				);
 	}
 }

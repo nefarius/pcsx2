@@ -47,7 +47,7 @@ public:
 	Block block;
 	Pixel pixel;
 
-	uint32* coverages[256]; // texture page coverage based on the texture size. Lazy allocated
+	std::array<uint32*,256> pages_as_bit; // texture page coverage based on the texture size. Lazy allocated
 
 	GSOffset(uint32 bp, uint32 bw, uint32 psm);
 	virtual ~GSOffset();
@@ -55,7 +55,8 @@ public:
 	enum {EOP = 0xffffffff};
 
 	uint32* GetPages(const GSVector4i& rect, uint32* pages = NULL, GSVector4i* bbox = NULL);
-	GSVector4i* GetPagesAsBits(const GSVector4i& rect, GSVector4i* pages = NULL, GSVector4i* bbox = NULL); // free returned value with _aligned_free
+	void* GetPagesAsBits(const GSVector4i& rect, void* pages);
+	uint32* GetPagesAsBits(const GIFRegTEX0& TEX0);
 };
 
 struct GSPixelOffset
@@ -127,6 +128,8 @@ public:
 	GSClut m_clut;
 
 protected:
+	bool m_use_fifo_alloc;
+
 	static uint32 pageOffset32[32][32][64];
 	static uint32 pageOffset32Z[32][32][64];
 	static uint32 pageOffset16[32][64][64];
@@ -170,10 +173,10 @@ protected:
 
 	//
 
-	hash_map<uint32, GSOffset*> m_omap;
-	hash_map<uint32, GSPixelOffset*> m_pomap;
-	hash_map<uint32, GSPixelOffset4*> m_po4map;
-	hash_map<uint64, vector<GSVector2i>*> m_p2tmap;
+	std::unordered_map<uint32, GSOffset*> m_omap;
+	std::unordered_map<uint32, GSPixelOffset*> m_pomap;
+	std::unordered_map<uint32, GSPixelOffset4*> m_po4map;
+	std::unordered_map<uint64, std::vector<GSVector2i>*> m_p2tmap;
 
 public:
 	GSLocalMemory();
@@ -182,7 +185,7 @@ public:
 	GSOffset* GetOffset(uint32 bp, uint32 bw, uint32 psm);
 	GSPixelOffset* GetPixelOffset(const GIFRegFRAME& FRAME, const GIFRegZBUF& ZBUF);
 	GSPixelOffset4* GetPixelOffset4(const GIFRegFRAME& FRAME, const GIFRegZBUF& ZBUF);
-	vector<GSVector2i>* GetPage2TileMap(const GIFRegTEX0& TEX0);
+	std::vector<GSVector2i>* GetPage2TileMap(const GIFRegTEX0& TEX0);
 
 	// address
 
@@ -232,9 +235,7 @@ public:
 
 	uint8* BlockPtr(uint32 bp) const
 	{
-		ASSERT(bp < 16384);
-
-		return &m_vm8[bp << 8];
+		return &m_vm8[(bp % MAX_BLOCKS) << 8];
 	}
 
 	uint8* BlockPtr32(int x, int y, uint32 bp, uint32 bw) const
@@ -319,7 +320,7 @@ public:
 
 	static __forceinline uint32 PixelAddress32(int x, int y, uint32 bp, uint32 bw)
 	{
-		uint32 page = (bp >> 5) + (y >> 5) * bw + (x >> 6);
+		uint32 page = ((bp >> 5) + (y >> 5) * bw + (x >> 6)) % MAX_PAGES;
 		uint32 word = (page << 11) + pageOffset32[bp & 0x1f][y & 0x1f][x & 0x3f];
 
 		return word;
@@ -327,7 +328,7 @@ public:
 
 	static __forceinline uint32 PixelAddress16(int x, int y, uint32 bp, uint32 bw)
 	{
-		uint32 page = (bp >> 5) + (y >> 6) * bw + (x >> 6);
+		uint32 page = ((bp >> 5) + (y >> 6) * bw + (x >> 6)) % MAX_PAGES;
 		uint32 word = (page << 12) + pageOffset16[bp & 0x1f][y & 0x3f][x & 0x3f];
 
 		return word;
@@ -335,7 +336,7 @@ public:
 
 	static __forceinline uint32 PixelAddress16S(int x, int y, uint32 bp, uint32 bw)
 	{
-		uint32 page = (bp >> 5) + (y >> 6) * bw + (x >> 6);
+		uint32 page = ((bp >> 5) + (y >> 6) * bw + (x >> 6)) % MAX_PAGES;
 		uint32 word = (page << 12) + pageOffset16S[bp & 0x1f][y & 0x3f][x & 0x3f];
 
 		return word;
@@ -345,7 +346,7 @@ public:
 	{
 		// ASSERT((bw & 1) == 0); // allowed for mipmap levels
 
-		uint32 page = (bp >> 5) + (y >> 6) * (bw >> 1) + (x >> 7);
+		uint32 page = ((bp >> 5) + (y >> 6) * (bw >> 1) + (x >> 7)) % MAX_PAGES;
 		uint32 word = (page << 13) + pageOffset8[bp & 0x1f][y & 0x3f][x & 0x7f];
 
 		return word;
@@ -355,7 +356,7 @@ public:
 	{
 		// ASSERT((bw & 1) == 0); // allowed for mipmap levels
 
-		uint32 page = (bp >> 5) + (y >> 7) * (bw >> 1) + (x >> 7);
+		uint32 page = ((bp >> 5) + (y >> 7) * (bw >> 1) + (x >> 7)) % MAX_PAGES;
 		uint32 word = (page << 14) + pageOffset4[bp & 0x1f][y & 0x7f][x & 0x7f];
 
 		return word;
@@ -363,7 +364,7 @@ public:
 
 	static __forceinline uint32 PixelAddress32Z(int x, int y, uint32 bp, uint32 bw)
 	{
-		uint32 page = (bp >> 5) + (y >> 5) * bw + (x >> 6);
+		uint32 page = ((bp >> 5) + (y >> 5) * bw + (x >> 6)) % MAX_PAGES;
 		uint32 word = (page << 11) + pageOffset32Z[bp & 0x1f][y & 0x1f][x & 0x3f];
 
 		return word;
@@ -371,7 +372,7 @@ public:
 
 	static __forceinline uint32 PixelAddress16Z(int x, int y, uint32 bp, uint32 bw)
 	{
-		uint32 page = (bp >> 5) + (y >> 6) * bw + (x >> 6);
+		uint32 page = ((bp >> 5) + (y >> 6) * bw + (x >> 6)) % MAX_PAGES;
 		uint32 word = (page << 12) + pageOffset16Z[bp & 0x1f][y & 0x3f][x & 0x3f];
 
 		return word;
@@ -379,7 +380,7 @@ public:
 
 	static __forceinline uint32 PixelAddress16SZ(int x, int y, uint32 bp, uint32 bw)
 	{
-		uint32 page = (bp >> 5) + (y >> 6) * bw + (x >> 6);
+		uint32 page = ((bp >> 5) + (y >> 6) * bw + (x >> 6)) % MAX_PAGES;
 		uint32 word = (page << 12) + pageOffset16SZ[bp & 0x1f][y & 0x3f][x & 0x3f];
 
 		return word;
@@ -876,6 +877,7 @@ public:
 	// * => 32
 
 	void ReadTexture32(const GSOffset* RESTRICT off, const GSVector4i& r, uint8* dst, int dstpitch, const GIFRegTEXA& TEXA);
+	void ReadTextureGPU24(const GSOffset* RESTRICT off, const GSVector4i& r, uint8* dst, int dstpitch, const GIFRegTEXA& TEXA);
 	void ReadTexture24(const GSOffset* RESTRICT off, const GSVector4i& r, uint8* dst, int dstpitch, const GIFRegTEXA& TEXA);
 	void ReadTexture16(const GSOffset* RESTRICT off, const GSVector4i& r, uint8* dst, int dstpitch, const GIFRegTEXA& TEXA);
 	void ReadTexture8(const GSOffset* RESTRICT off, const GSVector4i& r, uint8* dst, int dstpitch, const GIFRegTEXA& TEXA);
@@ -915,6 +917,6 @@ public:
 
 	//
 
-	void SaveBMP(const string& fn, uint32 bp, uint32 bw, uint32 psm, int w, int h);
+	void SaveBMP(const std::string& fn, uint32 bp, uint32 bw, uint32 psm, int w, int h);
 };
 

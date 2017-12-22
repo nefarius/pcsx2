@@ -125,9 +125,9 @@ bool GSDialog::OnCommand(HWND hWnd, UINT id, UINT code)
 	return false;
 }
 
-string GSDialog::GetText(UINT id)
+std::string GSDialog::GetText(UINT id)
 {
-	string s;
+	std::string s;
 
 	char* buff = NULL;
 
@@ -164,11 +164,18 @@ void GSDialog::SetTextAsInt(UINT id, int i)
 	SetText(id, buff);
 }
 
-void GSDialog::ComboBoxInit(UINT id, const vector<GSSetting>& settings, int32_t selectionValue, int32_t maxValue)
+void GSDialog::ComboBoxInit(UINT id, const std::vector<GSSetting>& settings, int32_t selectionValue, int32_t maxValue)
 {
+	if (settings.empty())
+		return;
+
 	HWND hWnd = GetDlgItem(m_hWnd, id);
 
 	SendMessage(hWnd, CB_RESETCONTENT, 0, 0);
+
+	const auto is_present = [=](const GSSetting& x) { return selectionValue == x.value; };
+	if (std::none_of(settings.begin(), settings.end(), is_present))
+		selectionValue = settings.front().value;
 
 	for(size_t i = 0; i < settings.size(); i++)
 	{
@@ -176,7 +183,7 @@ void GSDialog::ComboBoxInit(UINT id, const vector<GSSetting>& settings, int32_t 
 
 		if(s.value <= maxValue)
 		{
-			string str(s.name);
+			std::string str(s.name);
 
 			if(!s.note.empty())
 			{

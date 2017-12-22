@@ -38,75 +38,69 @@ set(onepadGuiResources
     )
 
 # plugin name
-set(Output onepad-1.3.0)
+set(Output onepad)
 set(onepadFinalFlags "")
 
 # onepad sources
 set(onepadSources
-	controller.cpp
-	GamePad.cpp
-	SDL/joystick.cpp
-	keyboard.cpp
-	KeyStatus.cpp
-	onepad.cpp
-	state_management.cpp)
+    controller.cpp
+    GamePad.cpp
+    SDL/joystick.cpp
+    keyboard.cpp
+    KeyStatus.cpp
+    onepad.cpp
+    resources.cpp
+    state_management.cpp)
 
 # onepad headers
 set(onepadHeaders
-	bitwise.h
-	controller.h
-	GamePad.h
-	SDL/joystick.h
-	keyboard.h
-	KeyStatus.h
-	onepad.h
-	state_management.h)
+    bitwise.h
+    controller.h
+    GamePad.h
+    SDL/joystick.h
+    keyboard.h
+    KeyStatus.h
+    onepad.h
+    resources.h
+    state_management.h)
 
 # onepad Linux sources
 set(onepadLinuxSources
-	${linux_sources}/ini.cpp
-	${linux_sources}/dialog.cpp
-	${linux_sources}/linux.cpp
-	${linux_sources}/opPanel.cpp
-	${linux_sources}/GamepadConfiguration.cpp
-	${linux_headers}/JoystickConfiguration.cpp)
+    ${linux_sources}/ini.cpp
+    ${linux_sources}/dialog.cpp
+    ${linux_sources}/linux.cpp
+    ${linux_sources}/opPanel.cpp
+    ${linux_sources}/GamepadConfiguration.cpp
+    ${linux_headers}/JoystickConfiguration.cpp)
 
 # onepad Linux headers
 set(onepadLinuxHeaders
-	${linux_headers}/linux.h
-	${linux_headers}/opPanel.h
-	${linux_headers}/GamepadConfiguration.h
-	${linux_headers}/JoystickConfiguration.h)
+    ${linux_headers}/opPanel.h
+    ${linux_headers}/GamepadConfiguration.h
+    ${linux_headers}/JoystickConfiguration.h)
 
 # onepad Windows sources
-set(onepadWindowsSources
-	)
+set(onepadWindowsSources)
 
 # onepad Windows headers
-set(onepadWindowsHeaders
-	)
+set(onepadWindowsHeaders)
 
-if (SDL2_API)
-	set(onepadFinalLibs ${SDL2_LIBRARIES})
-	add_definitions(-DSDL_BUILD)
-else()
-	set(onepadFinalLibs ${SDL_LIBRARY})
-	add_definitions(-DSDL_BUILD)
-endif()
+set(onepadFinalLibs ${SDL2_LIBRARIES})
+add_definitions(-DSDL_BUILD)
 
 set(onepadFinalLibs
-	${onepadFinalLibs}
-	${wxWidgets_LIBRARIES}
-	${GTK2_LIBRARIES}
-	${X11_LIBRARIES}
+    ${onepadFinalLibs}
+    ${wxWidgets_LIBRARIES}
+    ${GTK2_LIBRARIES}
+    ${X11_LIBRARIES}
 )
 
 set(onepadFinalSources
-	${onepadSources}
-	${onepadHeaders}
-	${onepadLinuxSources}
-	${onepadLinuxHeaders}
-	${onepadGuiResources}
+    ${onepadSources}
+    ${onepadHeaders}
+    ${onepadLinuxSources}
+    ${onepadLinuxHeaders}
+    ${onepadGuiResources}
 )
 
 include_directories(
@@ -124,6 +118,11 @@ foreach(result_file IN ITEMS
         OUTPUT  "${compiled_images}/${result_file}.h"
         COMMAND perl ${CMAKE_SOURCE_DIR}/linux_various/hex2h.pl "${image_sources}/${result_file}.png" "${compiled_images}/${result_file}" )
 endforeach()
+
+set(RESOURCE_FILES res/game_controller_db.txt)
+
+add_custom_glib_res("resources" "onepad-res.xml" "onepad_res" ${RESOURCE_FILES})
+
 
 if(BUILTIN_PAD)
     add_pcsx2_lib(${Output} "${onepadFinalSources}" "${onepadFinalLibs}" "${onepadFinalFlags}")

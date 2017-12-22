@@ -46,7 +46,7 @@ GSTexture11::GSTexture11(ID3D11Texture2D* texture)
 	m_msaa = m_desc.SampleDesc.Count > 1;
 }
 
-bool GSTexture11::Update(const GSVector4i& r, const void* data, int pitch)
+bool GSTexture11::Update(const GSVector4i& r, const void* data, int pitch, int layer)
 {
 	if(m_dev && m_texture)
 	{
@@ -60,7 +60,7 @@ bool GSTexture11::Update(const GSVector4i& r, const void* data, int pitch)
 	return false;
 }
 
-bool GSTexture11::Map(GSMap& m, const GSVector4i* r)
+bool GSTexture11::Map(GSMap& m, const GSVector4i* r, int layer)
 {
 	if(r != NULL)
 	{
@@ -93,7 +93,7 @@ void GSTexture11::Unmap()
 	}
 }
 
-bool GSTexture11::Save(const string& fn, bool user_image, bool dds)
+bool GSTexture11::Save(const std::string& fn, bool dds)
 {
 	CComPtr<ID3D11Texture2D> res;
 	D3D11_TEXTURE2D_DESC desc;
@@ -179,7 +179,7 @@ bool GSTexture11::Save(const string& fn, bool user_image, bool dds)
 		return false;
 	}
 
-	int compression = user_image ? Z_BEST_COMPRESSION : theApp.GetConfigI("png_compression_level");
+	int compression = theApp.GetConfigI("png_compression_level");
 	bool success = GSPng::Save(format, fn, static_cast<uint8*>(sm.pData), desc.Width, desc.Height, sm.RowPitch, compression);
 
 	m_ctx->Unmap(res, 0);

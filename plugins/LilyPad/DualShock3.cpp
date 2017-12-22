@@ -17,6 +17,7 @@
 
 #include "Global.h"
 #include "InputManager.h"
+#include "Config.h"
 
 #include "usb.h"
 #include "HidDevice.h"
@@ -25,7 +26,7 @@
 #define VID 0x054c
 #define PID 0x0268
 
- // Unresponsive period required before calling DS3Check().
+// Unresponsive period required before calling DS3Check().
 #define DEVICE_CHECK_DELAY 2000
 // Unresponsive period required before calling DS3Enum().  Note that enum is always called on first check.
 #define DEVICE_ENUM_DELAY 10000
@@ -38,35 +39,125 @@
 // Not really necessary.
 #define UPDATE_INTERVAL 3000
 
+unsigned int lastDS3Check = 0;
+unsigned int lastDS3Enum = 0;
 
+typedef void(__cdecl *_usb_init)(void);
+typedef int(__cdecl *_usb_close)(usb_dev_handle *dev);
+typedef int(__cdecl *_usb_get_string_simple)(usb_dev_handle *dev, int index, char *buf, size_t buflen);
+typedef usb_dev_handle *(__cdecl *_usb_open)(struct usb_device *dev);
+typedef int(__cdecl *_usb_find_busses)(void);
+typedef int(__cdecl *_usb_find_devices)(void);
+typedef struct usb_bus *(__cdecl *_usb_get_busses)(void);
+typedef usb_dev_handle *(__cdecl *_usb_open)(struct usb_device *dev);
+typedef int(__cdecl *_usb_control_msg)(usb_dev_handle *dev, int requesttype, int request, int value, int index, char *bytes, int size, int timeout);
 
+_usb_init pusb_init;
+_usb_close pusb_close;
+_usb_get_string_simple pusb_get_string_simple;
+_usb_open pusb_open;
+_usb_find_busses pusb_find_busses;
+_usb_find_devices pusb_find_devices;
+_usb_get_busses pusb_get_busses;
+_usb_control_msg pusb_control_msg;
 
-int DualShock3Possible() {
-    HANDLE hControlDevice = CreateFileA("\\\\.\\FireShockFilter",
-        GENERIC_READ, // Only read access
-        0, // FILE_SHARE_READ | FILE_SHARE_WRITE
-        nullptr, // no SECURITY_ATTRIBUTES structure
-        OPEN_EXISTING, // No special create flags
-        0, // No special attributes
-        nullptr); // No template file
+HMODULE hModLibusb = 0;
 
-    // FireShock filter present?
-    if (hControlDevice == INVALID_HANDLE_VALUE) {
-        return 0;
+void UninitLibUsb()
+{
+    if (hModLibusb) {
+        FreeLibrary(hModLibusb);
+        hModLibusb = 0;
     }
+}
 
-    CloseHandle(hControlDevice);
-    return 1;
+void TryInitDS3(usb_device *dev)
+{
+    while (dev) {
+        if (dev->descriptor.idVendor == VID && dev->descriptor.idProduct == PID) {
+            usb_dev_handle *handle = pusb_open(dev);
+            if (handle) {
+                char junk[20];
+                // This looks like HidD_GetFeature with a feature report id of 0xF2 to me and a length of 17.
+                // That doesn't work, however, and 17 is shorter than the report length.
+                pusb_control_msg(handle, 0xa1, 1, 0x03f2, dev->config->interface->altsetting->bInterfaceNumber, junk, 17, 1000);
+                pusb_close(handle);
+            }
+        }
+        if (dev->num_children) {
+            for (int i = 0; i < dev->num_children; i++) {
+                TryInitDS3(dev->children[i]);
+            }
+        }
+        dev = dev->next;
+    }
+}
+
+void DS3Enum(unsigned int time)
+{
+    if (time - lastDS3Enum < DOUBLE_ENUM_DELAY) {
+        return;
+    }
+    lastDS3Enum = time;
+    pusb_find_busses();
+    pusb_find_devices();
+}
+
+void DS3Check(unsigned int time)
+{
+    if (time - lastDS3Check < DOUBLE_CHECK_DELAY) {
+        return;
+    }
+    if (!lastDS3Check) {
+        DS3Enum(time);
+    }
+    lastDS3Check = time;
+
+    usb_bus *bus = pusb_get_busses();
+    while (bus) {
+        TryInitDS3(bus->devices);
+        bus = bus->next;
+    }
+}
+
+int InitLibUsb()
+{
+    if (hModLibusb) {
+        return 1;
+    }
+    hModLibusb = LoadLibraryA("C:\\windows\\system32\\libusb0.dll");
+    if (hModLibusb) {
+        if ((pusb_init = (_usb_init)GetProcAddress(hModLibusb, "usb_init")) &&
+            (pusb_close = (_usb_close)GetProcAddress(hModLibusb, "usb_close")) &&
+            (pusb_get_string_simple = (_usb_get_string_simple)GetProcAddress(hModLibusb, "usb_get_string_simple")) &&
+            (pusb_open = (_usb_open)GetProcAddress(hModLibusb, "usb_open")) &&
+            (pusb_find_busses = (_usb_find_busses)GetProcAddress(hModLibusb, "usb_find_busses")) &&
+            (pusb_find_devices = (_usb_find_devices)GetProcAddress(hModLibusb, "usb_find_devices")) &&
+            (pusb_get_busses = (_usb_get_busses)GetProcAddress(hModLibusb, "usb_get_busses")) &&
+            (pusb_control_msg = (_usb_control_msg)GetProcAddress(hModLibusb, "usb_control_msg"))) {
+            pusb_init();
+            return 1;
+        }
+        UninitLibUsb();
+    }
+    return 0;
+}
+
+int DualShock3Possible()
+{
+    return InitLibUsb();
 }
 
 #include <pshpack1.h>
 
-struct MotorState {
+struct MotorState
+{
     unsigned char duration;
     unsigned char force;
 };
 
-struct LightState {
+struct LightState
+{
     // 0xFF makes it stay on.
     unsigned char duration;
     // Have to make one or the other non-zero to turn on light.
@@ -78,7 +169,8 @@ struct LightState {
 };
 
 // Data sent to DS3 to set state.
-struct DS3Command {
+struct DS3Command
+{
     unsigned char id;
     unsigned char unsure;
     // Small is first, then big.
@@ -93,26 +185,25 @@ struct DS3Command {
 
 #include <poppack.h>
 
-int CharToPressure(unsigned char c) {
-    int v = (int)c + ((unsigned int)c >> 7);
-    return ((v / 2) * FULLY_DOWN) >> 7;
-}
-
-int CharToAxis(unsigned char c) {
+int CharToAxis(unsigned char c)
+{
     int v = (int)c + ((unsigned int)c >> 7);
     return ((c - 128) * FULLY_DOWN) >> 7;
 }
 
-int CharToButton(unsigned char c) {
+int CharToButton(unsigned char c)
+{
     int v = (int)c + ((unsigned int)c >> 7);
     return (v * FULLY_DOWN) >> 8;
 }
 
-class DualShock3Device : public Device {
+class DualShock3Device : public Device
+{
     // Cached last vibration values by pad and motor.
     // Need this, as only one value is changed at a time.
     int ps2Vibration[2][4][2];
     int vibration[2];
+
 public:
     int index;
     HANDLE hFile;
@@ -128,12 +219,14 @@ public:
     int writeQueued;
     int writing;
 
-    int StartRead() {
+    int StartRead()
+    {
         int res = ReadFile(hFile, &getState, sizeof(getState), 0, &readop);
         return (res || GetLastError() == ERROR_IO_PENDING);
     }
 
-    void QueueWrite() {
+    void QueueWrite()
+    {
         // max of 2 queued writes allowed, one for either motor.
         if (writeQueued < 2) {
             writeQueued++;
@@ -141,7 +234,8 @@ public:
         }
     }
 
-    int StartWrite() {
+    int StartWrite()
+    {
         if (!writing && writeQueued) {
             lastWrite = GetTickCount();
             writing++;
@@ -150,7 +244,8 @@ public:
             sendState.motors[1].duration = 0x50;
 
             int bigForce = vibration[0] * 256 / FULLY_DOWN;
-            if (bigForce > 255) bigForce = 255;
+            if (bigForce > 255)
+                bigForce = 255;
             sendState.motors[1].force = (unsigned char)bigForce;
             sendState.motors[0].force = (unsigned char)(vibration[1] >= FULLY_DOWN / 2);
             // Can't seem to have them both non-zero at once.
@@ -166,7 +261,9 @@ public:
         return 1;
     }
 
-    DualShock3Device(int index, wchar_t *name, wchar_t *path) : Device(DS3, OTHER, name, path, L"DualShock 3") {
+    DualShock3Device(int index, wchar_t *name, wchar_t *path)
+        : Device(DS3, OTHER, name, path, L"DualShock 3")
+    {
         writeCount = 0;
         writing = 0;
         writeQueued = 0;
@@ -183,69 +280,60 @@ public:
         vibration[0] = vibration[1] = 0;
         this->index = index;
         int i;
-
-        // Pressure sensitive buttons
-        for (i = 0; i < 12; i++)
-        {
-            AddPhysicalControl(PRESSURE_BTN, i, 0);
+        for (i = 0; i < 16; i++) {
+            if (i != 14 && i != 15 && i != 8 && i != 9) {
+                AddPhysicalControl(PRESSURE_BTN, i, 0);
+            } else {
+                AddPhysicalControl(PSHBTN, i, 0);
+            }
         }
-
-        // Digital buttons
-        for (i = 12; i < 16; i++)
-        {
-            AddPhysicalControl(PSHBTN, i, 0);
-        }
-
-        // Axes
-        for (i = 16; i < 20; i++)
-        {
+        for (; i < 23; i++) {
             AddPhysicalControl(ABSAXIS, i, 0);
         }
-
-        // PS button
-        AddPhysicalControl(PSHBTN, 20, 0);
-
         AddFFAxis(L"Big Motor", 0);
         AddFFAxis(L"Small Motor", 1);
-
         AddFFEffectType(L"Constant Effect", L"Constant", EFFECT_CONSTANT);
-
         hFile = INVALID_HANDLE_VALUE;
     }
 
-    wchar_t *GetPhysicalControlName(PhysicalControl *c) {
+    wchar_t *GetPhysicalControlName(PhysicalControl *c)
+    {
         const static wchar_t *names[] = {
-            L"Up",
-            L"Right",
-            L"Down",
-            L"Left",
-            L"Triangle",
-            L"Circle",
-            L"Cross",
             L"Square",
-            L"L1",
-            L"L2",
+            L"Cross",
+            L"Circle",
+            L"Triangle",
             L"R1",
+            L"L1",
             L"R2",
-            L"L3",
+            L"L2",
             L"R3",
-            L"Select",
+            L"L3",
+            L"Left",
+            L"Down",
+            L"Right",
+            L"Up",
             L"Start",
+            L"Select",
             L"L-Stick X",
             L"L-Stick Y",
             L"R-Stick X",
             L"R-Stick Y",
-            L"PS",
+            L"Left/Right Tilt",
+            L"Forward/Back Tilt",
+            L"???",
         };
         unsigned int i = (unsigned int)(c - physicalControls);
         if (i < sizeof(names) / sizeof(names[0])) {
-            return (wchar_t*)names[i];
+            return (wchar_t *)names[i];
         }
         return Device::GetPhysicalControlName(c);
     }
 
-    int Activate(InitInfo *initInfo) {
-        if (active) Deactivate();
+    int Activate(InitInfo *initInfo)
+    {
+        if (active)
+            Deactivate();
         // Give grace period before get mad.
         lastWrite = dataLastReceived = GetTickCount();
         readop.hEvent = CreateEvent(0, 0, 0, 0);
@@ -261,12 +349,13 @@ public:
         return 1;
     }
 
-    int Update() {
-        if (!active) return 0;
+    int Update()
+    {
+        if (!active)
+            return 0;
         HANDLE h[2] = {
             readop.hEvent,
-            writeop.hEvent
-        };
+            writeop.hEvent};
         unsigned int time = GetTickCount();
         if (time - lastWrite > UPDATE_INTERVAL) {
             QueueWrite();
@@ -280,40 +369,31 @@ public:
                     return 0;
                 }
 
-                // Pressure sensitive buttons
-                physicalControlState[0] = CharToPressure(getState[10]);
-                physicalControlState[1] = CharToPressure(getState[11]);
-                physicalControlState[2] = CharToPressure(getState[12]);
-                physicalControlState[3] = CharToPressure(getState[13]);
-                physicalControlState[4] = CharToPressure(getState[16]);
-                physicalControlState[5] = CharToPressure(getState[17]);
-                physicalControlState[6] = CharToPressure(getState[18]);
-                physicalControlState[7] = CharToPressure(getState[19]);
-                physicalControlState[8] = CharToPressure(getState[14]);
-                physicalControlState[9] = CharToPressure(getState[8]);
-                physicalControlState[10] = CharToPressure(getState[15]);
-                physicalControlState[11] = CharToPressure(getState[9]);
-                
-                // Thumb buttons
-                physicalControlState[12] = CharToButton(((getState[6] >> 1) & 1) * 0xFF);
-                physicalControlState[13] = CharToButton(((getState[6] >> 2) & 1) * 0xFF);
-
-                // Select & Start
-                physicalControlState[14] = CharToButton(((getState[6] >> 0) & 1) * 0xFF);
-                physicalControlState[15] = CharToButton(((getState[6] >> 3) & 1) * 0xFF);
-
-                // Thumb axes
-                physicalControlState[16] = CharToAxis(getState[1]);
-                physicalControlState[17] = CharToAxis(getState[2]);
-                physicalControlState[18] = CharToAxis(getState[3]);
-                physicalControlState[19] = CharToAxis(getState[4]);
-
-                // PS button
-                physicalControlState[20] = CharToButton(((getState[7] >> 0) & 1) * 0xFF);
-                
+                physicalControlState[0] = CharToButton(getState[25]);
+                physicalControlState[1] = CharToButton(getState[24]);
+                physicalControlState[2] = CharToButton(getState[23]);
+                physicalControlState[3] = CharToButton(getState[22]);
+                physicalControlState[4] = CharToButton(getState[21]);
+                physicalControlState[5] = CharToButton(getState[20]);
+                physicalControlState[6] = CharToButton(getState[19]);
+                physicalControlState[7] = CharToButton(getState[18]);
+                physicalControlState[10] = CharToButton(getState[17]);
+                physicalControlState[11] = CharToButton(getState[16]);
+                physicalControlState[12] = CharToButton(getState[15]);
+                physicalControlState[13] = CharToButton(getState[14]);
+                physicalControlState[8] = ((getState[2] & 4) / 4) * FULLY_DOWN;
+                physicalControlState[9] = ((getState[2] & 2) / 2) * FULLY_DOWN;
+                physicalControlState[15] = ((getState[2] & 1) / 1) * FULLY_DOWN;
+                physicalControlState[14] = ((getState[2] & 8) / 8) * FULLY_DOWN;
+                physicalControlState[16] = CharToAxis(getState[6]);
+                physicalControlState[17] = CharToAxis(getState[7]);
+                physicalControlState[18] = CharToAxis(getState[8]);
+                physicalControlState[19] = CharToAxis(getState[9]);
+                physicalControlState[20] = CharToAxis(getState[42] + 128);
+                physicalControlState[21] = CharToAxis(getState[44] + 128);
+                physicalControlState[22] = CharToAxis(getState[46] + 128);
                 continue;
-            }
-            else if (res == WAIT_OBJECT_0 + 1) {
+            } else if (res == WAIT_OBJECT_0 + 1) {
                 writing = 0;
                 if (!writeQueued && (vibration[0] | vibration[1])) {
                     QueueWrite();
@@ -322,9 +402,12 @@ public:
                     Deactivate();
                     return 0;
                 }
-            }
-            else {
+            } else {
                 if (time - dataLastReceived >= DEVICE_CHECK_DELAY) {
+                    if (time - dataLastReceived >= DEVICE_ENUM_DELAY) {
+                        DS3Enum(time);
+                    }
+                    DS3Check(time);
                     QueueWrite();
                 }
             }
@@ -333,14 +416,16 @@ public:
         return 1;
     }
 
-    void SetEffects(unsigned char port, unsigned int slot, unsigned char motor, unsigned char force) {
+    void SetEffects(unsigned char port, unsigned int slot, unsigned char motor, unsigned char force)
+    {
         ps2Vibration[port][slot][motor] = force;
         vibration[0] = vibration[1] = 0;
         for (int p = 0; p < 2; p++) {
             for (int s = 0; s < 4; s++) {
-                for (int i = 0; i < pads[p][s].numFFBindings; i++) {
+                int padtype = config.padConfigs[p][s].type;
+                for (int i = 0; i < pads[p][s][padtype].numFFBindings; i++) {
                     // Technically should also be a *65535/BASE_SENSITIVITY, but that's close enough to 1 for me.
-                    ForceFeedbackBinding *ffb = &pads[p][s].ffBindings[i];
+                    ForceFeedbackBinding *ffb = &pads[p][s][padtype].ffBindings[i];
                     vibration[0] += (int)((ffb->axes[0].force * (__int64)ps2Vibration[p][s][ffb->motor]) / 255);
                     vibration[1] += (int)((ffb->axes[1].force * (__int64)ps2Vibration[p][s][ffb->motor]) / 255);
                 }
@@ -351,15 +436,17 @@ public:
         QueueWrite();
     }
 
-    void SetEffect(ForceFeedbackBinding *binding, unsigned char force) {
-        PadBindings pBackup = pads[0][0];
-        pads[0][0].ffBindings = binding;
-        pads[0][0].numFFBindings = 1;
+    void SetEffect(ForceFeedbackBinding *binding, unsigned char force)
+    {
+        PadBindings pBackup = pads[0][0][0];
+        pads[0][0][0].ffBindings = binding;
+        pads[0][0][0].numFFBindings = 1;
         SetEffects(0, 0, binding->motor, 255);
-        pads[0][0] = pBackup;
+        pads[0][0][0] = pBackup;
     }
 
-    void Deactivate() {
+    void Deactivate()
+    {
         if (hFile != INVALID_HANDLE_VALUE) {
             CancelIo(hFile);
             CloseHandle(hFile);
@@ -380,24 +467,31 @@ public:
         active = 0;
     }
 
-    ~DualShock3Device() {
+    ~DualShock3Device()
+    {
     }
 };
 
-void EnumDualShock3s() {
-    if (!DualShock3Possible()) return;
+void EnumDualShock3s()
+{
+    if (!InitLibUsb())
+        return;
 
     HidDeviceInfo *foundDevs = 0;
 
     int numDevs = FindHids(&foundDevs, VID, PID);
-    if (!numDevs) return;
+    if (!numDevs)
+        return;
     int index = 0;
     for (int i = 0; i < numDevs; i++) {
-        wchar_t temp[100];
-        wsprintfW(temp, L"FS DualShock 3 #%i", index + 1);
-        dm->AddDevice(new DualShock3Device(index, temp, foundDevs[i].path));
-        index++;
-
+        if (foundDevs[i].caps.FeatureReportByteLength == 49 &&
+            foundDevs[i].caps.InputReportByteLength == 49 &&
+            foundDevs[i].caps.OutputReportByteLength == 49) {
+            wchar_t temp[100];
+            wsprintfW(temp, L"DualShock 3 #%i", index + 1);
+            dm->AddDevice(new DualShock3Device(index, temp, foundDevs[i].path));
+            index++;
+        }
         free(foundDevs[i].path);
     }
     free(foundDevs);

@@ -129,7 +129,7 @@ void Pcsx2App::AllocateCoreStuffs()
 		// FIXME : Some or all of SysCpuProviderPack should be run from the SysExecutor thread,
 		// so that the thread is safely blocked from being able to start emulation.
 
-		m_CpuProviders = std::unique_ptr<SysCpuProviderPack>(new SysCpuProviderPack());
+		m_CpuProviders = std::make_unique<SysCpuProviderPack>();
 
 		if( m_CpuProviders->HadSomeFailures( g_Conf->EmuOptions.Cpu.Recompiler ) )
 		{
@@ -249,6 +249,8 @@ void Pcsx2App::OnInitCmdLine( wxCmdLineParser& parser )
 	parser.AddSwitch( wxEmptyString,L"forcewiz",	AddAppName(_("forces %s to start the First-time Wizard")) );
 	parser.AddSwitch( wxEmptyString,L"portable",	_("enables portable mode operation (requires admin/root access)") );
 
+	parser.AddSwitch( wxEmptyString,L"profiling",	_("update options to ease profiling (debug)") );
+
 	const PluginInfo* pi = tbl_PluginInfo; do {
 		parser.AddOption( wxEmptyString, pi->GetShortname().Lower(),
 			pxsFmt( _("specify the file to use as the %s plugin"), WX_STR(pi->GetShortname()) )
@@ -281,6 +283,8 @@ bool Pcsx2App::ParseOverrides( wxCmdLineParser& parser )
 	}
 
 	Overrides.DisableSpeedhacks = parser.Found(L"nohacks");
+
+	Overrides.ProfilingMode = parser.Found(L"profiling");
 
 	if (parser.Found(L"gamefixes", &dest))
 	{
@@ -346,6 +350,7 @@ bool Pcsx2App::OnCmdLineParsed( wxCmdLineParser& parser )
 	if( parser.GetParamCount() >= 1 )
 	{
 		Startup.IsoFile		= parser.GetParam( 0 );
+		Startup.CdvdSource	= CDVD_SourceType::Iso;
 		Startup.SysAutoRun	= true;
 	}
 	else
@@ -362,8 +367,14 @@ bool Pcsx2App::OnCmdLineParsed( wxCmdLineParser& parser )
 
 	if( parser.Found(L"usecd") )
 	{
-		Startup.CdvdSource	= CDVDsrc_Plugin;
+		Startup.CdvdSource	= CDVD_SourceType::Plugin;
 		Startup.SysAutoRun	= true;
+	}
+
+	if (parser.Found(L"nodisc"))
+	{
+		Startup.CdvdSource = CDVD_SourceType::NoDisc;
+		Startup.SysAutoRun = true;
 	}
 
 	return true;
@@ -386,7 +397,7 @@ public:
 	{
 	}
 
-	virtual ~GameDatabaseLoaderThread() throw()
+	virtual ~GameDatabaseLoaderThread()
 	{
 		try {
 			_parent::Cancel();
@@ -423,7 +434,7 @@ bool Pcsx2App::OnInit()
 	pxDoAssert		= AppDoAssert;
 	pxDoOutOfMemory	= SysOutOfMemory_EmergencyResponse;
 
-	g_Conf = std::unique_ptr<AppConfig>(new AppConfig());
+	g_Conf = std::make_unique<AppConfig>();
     wxInitAllImageHandlers();
 
 	Console.WriteLn("Applying operating system default language...");
@@ -470,13 +481,14 @@ bool Pcsx2App::OnInit()
 		// PCSX2 has a lot of event handling logistics, so we *cannot* depend on wxWidgets automatic event
 		// loop termination code.  We have a much safer system in place that continues to process messages
 		// until all "important" threads are closed out -- not just until the main frame is closed(-ish).
-		m_timer_Termination = std::unique_ptr<wxTimer>(new wxTimer( this, wxID_ANY ));
+		m_timer_Termination = std::make_unique<wxTimer>( this, wxID_ANY );
 		Bind(wxEVT_TIMER, &Pcsx2App::OnScheduledTermination, this, m_timer_Termination->GetId());
 		SetExitOnFrameDelete( false );
 
 
 		//   Start GUI and/or Direct Emulation
 		// -------------------------------------
+		pxSizerFlags::SetBestPadding();
 		if( Startup.ForceConsole ) g_Conf->ProgLogBox.Visible = true;
 		OpenProgramLog();
 		AllocateCoreStuffs();
@@ -490,12 +502,10 @@ bool Pcsx2App::OnInit()
 
 		if( Startup.SysAutoRun )
 		{
-			// Notes: Saving/remembering the Iso file is probably fine and desired, so using
-			// SysUpdateIsoSrcFile is good(ish).
-			// Saving the cdvd plugin override isn't desirable, so we don't assign it into g_Conf.
-
 			g_Conf->EmuOptions.UseBOOT2Injection = !Startup.NoFastBoot;
-			SysUpdateIsoSrcFile( Startup.IsoFile );
+			g_Conf->CdvdSource = Startup.CdvdSource;
+			if (Startup.CdvdSource == CDVD_SourceType::Iso)
+				SysUpdateIsoSrcFile( Startup.IsoFile );
 			sApp.SysExecute( Startup.CdvdSource );
 		}
 		else if ( Startup.SysAutoRunElf )

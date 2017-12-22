@@ -5,6 +5,7 @@
 
 layout(location = 0) in vec2 POSITION;
 layout(location = 1) in vec2 TEXCOORD0;
+layout(location = 7) in vec4 COLOR;
 
 // FIXME set the interpolation (don't know what dx do)
 // flat means that there is no interpolation. The value given to the fragment shader is based on the provoking vertex conventions.
@@ -18,12 +19,14 @@ out SHADER
 {
     vec4 p;
     vec2 t;
+    vec4 c;
 } VSout;
 
 void vs_main()
 {
     VSout.p = vec4(POSITION, 0.5f, 1.0f);
     VSout.t = TEXCOORD0;
+    VSout.c = COLOR;
     gl_Position = vec4(POSITION, 0.5f, 1.0f); // NOTE I don't know if it is possible to merge POSITION_OUT and gl_Position
 }
 
@@ -35,6 +38,7 @@ in SHADER
 {
     vec4 p;
     vec2 t;
+    vec4 c;
 } PSin;
 
 // Give a different name so I remember there is a special case!
@@ -274,6 +278,13 @@ void ps_main17()
 }
 #endif
 
+#ifdef ps_main18
+void ps_main18()
+{
+    SV_Target0 = PSin.c * vec4(1.0, 1.0, 1.0, sample_c().r);
+}
+#endif
+
 #ifdef ps_main7
 void ps_main7()
 {
@@ -373,6 +384,57 @@ void ps_main3()
 void ps_main4()
 {
     SV_Target0 = mod(round(sample_c() * 255.0f), 256.0f) / 255.0f;
+}
+#endif
+
+#ifdef ps_main19
+void ps_main19()
+{
+    vec4 i = sample_c();
+    vec4 o;
+
+    mat3 rgb2yuv; // Value from GS manual
+    rgb2yuv[0] = vec3(0.587, -0.311, -0.419);
+    rgb2yuv[1] = vec3(0.114, 0.500, -0.081);
+    rgb2yuv[2] = vec3(0.299, -0.169, 0.500);
+
+    vec3 yuv = rgb2yuv * i.gbr;
+
+    float Y = float(0xDB)/255.0f * yuv.x + float(0x10)/255.0f;
+    float Cr = float(0xE0)/255.0f * yuv.y + float(0x80)/255.0f;
+    float Cb = float(0xE0)/255.0f * yuv.z + float(0x80)/255.0f;
+
+    switch(EMODA) {
+        case 0:
+            o.a = i.a;
+            break;
+        case 1:
+            o.a = Y;
+            break;
+        case 2:
+            o.a = Y/2.0f;
+            break;
+        case 3:
+            o.a = 0.0f;
+            break;
+    }
+
+    switch(EMODC) {
+        case 0:
+            o.rgb = i.rgb;
+            break;
+        case 1:
+            o.rgb = vec3(Y);
+            break;
+        case 2:
+            o.rgb = vec3(Y, Cb, Cr);
+            break;
+        case 3:
+            o.rgb = vec3(i.a);
+            break;
+    }
+
+    SV_Target0 = o;
 }
 #endif
 

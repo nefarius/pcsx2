@@ -318,6 +318,7 @@ extern PFNGLCOPYTEXTURESUBIMAGE2DPROC           glCopyTextureSubImage2D;
 extern PFNGLBINDTEXTUREUNITPROC                 glBindTextureUnit;
 extern PFNGLGETTEXTUREIMAGEPROC                 glGetTextureImage;
 extern PFNGLTEXTUREPARAMETERIPROC               glTextureParameteri;
+extern PFNGLGENERATETEXTUREMIPMAPPROC           glGenerateTextureMipmap;
 
 extern PFNGLCREATEFRAMEBUFFERSPROC              glCreateFramebuffers;
 extern PFNGLCLEARNAMEDFRAMEBUFFERFVPROC         glClearNamedFramebufferfv;
@@ -345,21 +346,30 @@ extern PFNGLCLIPCONTROLPROC                     glClipControl;
 extern PFNGLTEXTUREBARRIERPROC                  glTextureBarrier;
 extern PFNGLGETTEXTURESUBIMAGEPROC              glGetTextureSubImage;
 
-namespace GLLoader {
-	bool check_gl_version(int major, int minor);
-	void init_gl_function();
-	bool check_gl_supported_extension();
+#ifdef _WIN32
+extern PFNGLACTIVETEXTUREPROC                   gl_ActiveTexture;
+extern PFNGLTEXSTORAGE2DPROC                    glTexStorage2D;
+extern PFNGLGENPROGRAMPIPELINESPROC             glGenProgramPipelines;
+extern PFNGLGENSAMPLERSPROC                     glGenSamplers;
+extern PFNGLGENERATEMIPMAPPROC                  glGenerateMipmap;
+#endif
 
-	extern bool fglrx_buggy_driver;
-	extern bool legacy_fglrx_buggy_driver;
-	extern bool mesa_amd_buggy_driver;
-	extern bool nvidia_buggy_driver;
-	extern bool intel_buggy_driver;
+
+namespace GLLoader {
+	void check_gl_requirements();
+
+	extern bool vendor_id_amd;
+	extern bool vendor_id_nvidia;
+	extern bool vendor_id_intel;
+	extern bool amd_legacy_buggy_driver;
+	extern bool mesa_driver;
 	extern bool buggy_sso_dual_src;
 	extern bool in_replayer;
 
 	// GL
 	extern bool found_geometry_shader;
+	extern bool found_GL_ARB_copy_image;
+	extern bool found_GL_ARB_clip_control;
 	extern bool found_GL_ARB_gpu_shader5;
 	extern bool found_GL_ARB_shader_image_load_store;
 	extern bool found_GL_ARB_clear_texture;

@@ -25,8 +25,13 @@
 #include "resource.h"
 
 GSRendererDX11::GSRendererDX11()
-	: GSRendererDX(new GSTextureCache11(this), GSVector2(-0.5f, -0.5f))
+	: GSRendererDX(new GSTextureCache11(this), GSVector2(-0.5f))
 {
+	if (theApp.GetConfigB("UserHacks")) {
+		UserHacks_unscale_pt_ln = theApp.GetConfigB("UserHacks_unscale_point_line");
+	} else {
+		UserHacks_unscale_pt_ln = false;
+	}
 }
 
 bool GSRendererDX11::CreateDevice(GSDevice* dev)
@@ -37,9 +42,44 @@ bool GSRendererDX11::CreateDevice(GSDevice* dev)
 	return true;
 }
 
-void GSRendererDX11::SetupIA()
+void GSRendererDX11::SetupIA(const float& sx, const float& sy)
 {
 	GSDevice11* dev = (GSDevice11*)m_dev;
+
+	D3D11_PRIMITIVE_TOPOLOGY t;
+
+	bool unscale_hack = UserHacks_unscale_pt_ln && (GetUpscaleMultiplier() != 1);
+
+	switch (m_vt.m_primclass)
+	{
+	case GS_POINT_CLASS:
+		if (unscale_hack) {
+			m_gs_sel.point = 1;
+			gs_cb.PointSize = GSVector2(16.0f * sx, 16.0f * sy);
+		}
+
+		t = D3D11_PRIMITIVE_TOPOLOGY_POINTLIST;
+		break;
+	case GS_LINE_CLASS:
+		if (unscale_hack) {
+			m_gs_sel.line = 1;
+			gs_cb.PointSize = GSVector2(16.0f * sx, 16.0f * sy);
+		}
+
+		t = D3D11_PRIMITIVE_TOPOLOGY_LINELIST;
+
+		break;
+	case GS_SPRITE_CLASS:
+		t = D3D11_PRIMITIVE_TOPOLOGY_LINELIST;
+		break;
+	case GS_TRIANGLE_CLASS:
+
+		t = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+		break;
+	default:
+		__assume(0);
+	}
 
 	void* ptr = NULL;
 
@@ -61,24 +101,5 @@ void GSRendererDX11::SetupIA()
 	}
 
 	dev->IASetIndexBuffer(m_index.buff, m_index.tail);
-
-	D3D11_PRIMITIVE_TOPOLOGY t;
-
-	switch(m_vt.m_primclass)
-	{
-	case GS_POINT_CLASS:
-		t = D3D11_PRIMITIVE_TOPOLOGY_POINTLIST;
-		break;
-	case GS_LINE_CLASS:
-	case GS_SPRITE_CLASS:
-		t = D3D11_PRIMITIVE_TOPOLOGY_LINELIST;
-		break;
-	case GS_TRIANGLE_CLASS:
-		t = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-		break;
-	default:
-		__assume(0);
-	}
-	
 	dev->IASetPrimitiveTopology(t);
 }

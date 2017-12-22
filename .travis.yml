@@ -1,27 +1,32 @@
 language: cpp
 
 sudo: required
-dist: trusty
 
 cache: ccache
 
 matrix:
   include:
-    - env: VERSION=6 BITS=32
-      compiler: gcc-6-32
+    - env: VERSION=7 BITS=64
+      compiler: gcc
       os: linux
-    - env: VERSION=5 BITS=32
-      compiler: gcc-5-32
+    - env: VERSION=7 BITS=32
+      compiler: gcc
+      os: linux
+    - env: VERSION=6 BITS=32
+      compiler: gcc
       os: linux
     - env: VERSION=4.9 BITS=32
-      compiler: gcc-4.9-32
+      compiler: gcc
       os: linux
-    - env: VERSION=4.9 BITS=64
-      compiler: gcc-4.9-64
+    - env: VERSION=3.8 BITS=32
+      compiler: clang
       os: linux
 
 before_install:
   - ./travis.sh before_install
+
+before_script:
+  - ./travis.sh before_script
 
 script:
   - ./travis.sh script

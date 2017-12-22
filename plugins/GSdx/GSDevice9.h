@@ -74,7 +74,7 @@ class GSDevice9 : public GSDeviceDX
 {
 	GSTexture* CreateSurface(int type, int w, int h, bool msaa, int format);
 
-	void DoMerge(GSTexture* sTex[2], GSVector4* sRect, GSTexture* dTex, GSVector4* dRect, bool slbg, bool mmod, const GSVector4& c);
+	void DoMerge(GSTexture* sTex[3], GSVector4* sRect, GSTexture* dTex, GSVector4* dRect, const GSRegPMODE& PMODE, const GSRegEXTBUF& EXTBUF, const GSVector4& c);
 	void DoInterlace(GSTexture* sTex, GSTexture* dTex, int shader, bool linear, float yoffset = 0);
 	void DoFXAA(GSTexture* sTex, GSTexture* dTex);
 	void DoShadeBoost(GSTexture* sTex, GSTexture* dTex);
@@ -172,12 +172,12 @@ public: // TODO
 
 	// Shaders...
 
-	hash_map<uint32, GSVertexShader9 > m_vs;
-	hash_map<uint32, CComPtr<IDirect3DPixelShader9> > m_ps;
-	hash_map<uint32, Direct3DSamplerState9* > m_ps_ss;
-	hash_map<uint32, Direct3DDepthStencilState9* > m_om_dss;
-	hash_map<uint32, Direct3DBlendState9* > m_om_bs;
-	hash_map<uint32, GSTexture*> m_mskfix;
+	std::unordered_map<uint32, GSVertexShader9> m_vs;
+	std::unordered_map<uint64, CComPtr<IDirect3DPixelShader9>> m_ps;
+	std::unordered_map<uint32, Direct3DSamplerState9*> m_ps_ss;
+	std::unordered_map<uint32, Direct3DDepthStencilState9*> m_om_dss;
+	std::unordered_map<uint32, Direct3DBlendState9*> m_om_bs;
+	std::unordered_map<uint32, GSTexture*> m_mskfix;
 
 	GSTexture* CreateMskFix(uint32 size, uint32 msk, uint32 fix);
 
@@ -185,12 +185,12 @@ public:
 	GSDevice9();
 	virtual ~GSDevice9();
 
-	bool Create(GSWnd* wnd);
+	bool Create(const std::shared_ptr<GSWnd> &wnd);
 	bool Reset(int w, int h);
 	bool IsLost(bool update);
 	void Flip();
 
-	void SetVSync(bool enable);
+	void SetVSync(int vsync);
 
 	void BeginScene();
 	void DrawPrimitive();
@@ -199,7 +199,7 @@ public:
 
 	void ClearRenderTarget(GSTexture* t, const GSVector4& c);
 	void ClearRenderTarget(GSTexture* t, uint32 c);
-	void ClearDepth(GSTexture* t, float c);
+	void ClearDepth(GSTexture* t);
 	void ClearStencil(GSTexture* t, uint8 c);
 
 	GSTexture* CreateRenderTarget(int w, int h, bool msaa, int format = 0);
@@ -237,11 +237,11 @@ public:
 	IDirect3DDevice9* operator->() {return m_dev;}
 	operator IDirect3DDevice9*() {return m_dev;}
 
-	void CompileShader(const char *source, size_t size, const char *filename, const string& entry, const D3D_SHADER_MACRO* macro, IDirect3DVertexShader9** vs, const D3DVERTEXELEMENT9* layout, int count, IDirect3DVertexDeclaration9** il);
-	void CompileShader(const char *source, size_t size, const char *filename, const string& entry, const D3D_SHADER_MACRO* macro, IDirect3DPixelShader9** ps);
+	void CompileShader(const char *source, size_t size, const char *filename, const std::string& entry, const D3D_SHADER_MACRO* macro, IDirect3DVertexShader9** vs, const D3DVERTEXELEMENT9* layout, int count, IDirect3DVertexDeclaration9** il);
+	void CompileShader(const char *source, size_t size, const char *filename, const std::string& entry, const D3D_SHADER_MACRO* macro, IDirect3DPixelShader9** ps);
 
 	void SetupVS(VSSelector sel, const VSConstantBuffer* cb);
-	void SetupGS(GSSelector sel) {}
+	void SetupGS(GSSelector sel, const GSConstantBuffer* cb) {}
 	void SetupPS(PSSelector sel, const PSConstantBuffer* cb, PSSamplerSelector ssel);
 	void SetupOM(OMDepthStencilSelector dssel, OMBlendSelector bsel, uint8 afix);
 

@@ -43,7 +43,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 	return TRUE;
 }
 
-bool GSdxApp::LoadResource(int id, vector<unsigned char>& buff, const char* type)
+bool GSdxApp::LoadResource(int id, std::vector<char>& buff, const char* type)
 {
 	buff.clear();
 	HRSRC hRsrc = FindResource((HMODULE)s_hModule, MAKEINTRESOURCE(id), type != NULL ? type : RT_RCDATA);
@@ -52,18 +52,70 @@ bool GSdxApp::LoadResource(int id, vector<unsigned char>& buff, const char* type
 	if(!hGlobal) return false;
 	DWORD size = SizeofResource((HMODULE)s_hModule, hRsrc);
 	if(!size) return false;
-	buff.resize(size);
+	// On Linux resources are always NULL terminated
+	// Add + 1 on size to do the same for compatibility sake (required by GSDeviceOGL)
+	buff.resize(size + 1);
 	memcpy(buff.data(), LockResource(hGlobal), size);
 	return true;
 }
 
 #else
 
-bool GSdxApp::LoadResource(int id, vector<unsigned char>& buff, const char* type)
+#include "GSdxResources.h"
+
+bool GSdxApp::LoadResource(int id, std::vector<char>& buff, const char* type)
 {
+	std::string path;
+	switch (id) {
+		case IDR_COMMON_GLSL:
+			path = "/GSdx/res/glsl/common_header.glsl";
+			break;
+		case IDR_CONVERT_GLSL:
+			path = "/GSdx/res/glsl/convert.glsl";
+			break;
+		case IDR_FXAA_FX:
+			path = "/GSdx/res/fxaa.fx";
+			break;
+		case IDR_INTERLACE_GLSL:
+			path = "/GSdx/res/glsl/interlace.glsl";
+			break;
+		case IDR_MERGE_GLSL:
+			path = "/GSdx/res/glsl/merge.glsl";
+			break;
+		case IDR_SHADEBOOST_GLSL:
+			path = "/GSdx/res/glsl/shadeboost.glsl";
+			break;
+		case IDR_TFX_VGS_GLSL:
+			path = "/GSdx/res/glsl/tfx_vgs.glsl";
+			break;
+		case IDR_TFX_FS_GLSL:
+			path = "/GSdx/res/glsl/tfx_fs.glsl";
+			break;
+		case IDR_TFX_CL:
+			path = "/GSdx/res/tfx.cl";
+			break;
+		default:
+			printf("LoadResource not implemented for id %d\n", id);
+			return false;
+	}
+
+	GBytes *bytes = g_resource_lookup_data(GSdx_res_get_resource(), path.c_str(), G_RESOURCE_LOOKUP_FLAGS_NONE, nullptr);
+
+	size_t size = 0;
+	const void* data = g_bytes_get_data(bytes, &size);
+
+	if (data == nullptr || size == 0) {
+		printf("Failed to get data for resource: %d\n", id);
+		return false;
+	}
+
 	buff.clear();
-	printf("LoadResource not implemented\n");
-	return false;
+	buff.resize(size + 1);
+	memcpy(buff.data(), data, size + 1);
+
+	g_bytes_unref(bytes);
+
+	return true;
 }
 
 size_t GSdxApp::GetPrivateProfileString(const char* lpAppName, const char* lpKeyName, const char* lpDefault, char* lpReturnedString, size_t nSize, const char* lpFileName)
@@ -95,14 +147,13 @@ bool GSdxApp::WritePrivateProfileString(const char* lpAppName, const char* lpKey
 
 	if (f == NULL) return false; // FIXME print a nice message
 
-	map<std::string,std::string>::iterator it;
-	for (it = m_configuration_map.begin(); it != m_configuration_map.end(); ++it) {
+	for (const auto& entry : m_configuration_map) {
 		// Do not save the inifile key which is not an option
-		if (it->first.compare("inifile") == 0) continue;
+		if (entry.first.compare("inifile") == 0) continue;
 
 		// Only keep option that have a default value (allow to purge old option of the GSdx.ini)
-		if (!it->second.empty() && m_default_configuration.find(it->first) != m_default_configuration.end())
-			fprintf(f, "%s = %s\n", it->first.c_str(), it->second.c_str());
+		if (!entry.second.empty() && m_default_configuration.find(entry.first) != m_default_configuration.end())
+			fprintf(f, "%s = %s\n", entry.first.c_str(), entry.second.c_str());
 	}
 	fclose(f);
 
@@ -142,16 +193,18 @@ void GSdxApp::Init()
 		return;
 	is_initialised = true;
 
+	m_current_renderer_type = GSRendererType::Undefined;
+
 	if (m_ini.empty())
 		m_ini = "inis/GSdx.ini";
 	m_section = "Settings";
 
 #ifdef _WIN32
-	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::DX9_HW), "Direct3D9", "Hardware"));
-	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::DX1011_HW), "Direct3D", "Hardware"));
+	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::DX9_HW), "Direct3D 9", "Hardware"));
+	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::DX1011_HW), "Direct3D ", "Hardware"));
 	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::OGL_HW), "OpenGL", "Hardware"));
-	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::DX9_SW), "Direct3D9", "Software"));
-	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::DX1011_SW), "Direct3D", "Software"));
+	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::DX9_SW), "Direct3D 9", "Software"));
+	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::DX1011_SW), "Direct3D ", "Software"));
 	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::OGL_SW), "OpenGL", "Software"));
 #else // Linux
 	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::OGL_HW), "OpenGL", "Hardware"));
@@ -164,8 +217,10 @@ void GSdxApp::Init()
 #ifdef ENABLE_OPENCL
 	// OpenCL stuff goes last
 	// FIXME openCL isn't attached to a device (could be impacted by the window management stuff however)
-	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::DX9_OpenCL),		"Direct3D9",	"OpenCL"));
-	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::DX1011_OpenCL),	"Direct3D11",	"OpenCL"));
+#ifdef _WIN32
+	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::DX9_OpenCL),		"Direct3D 9",	"OpenCL"));
+	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::DX1011_OpenCL),	"Direct3D 11",	"OpenCL"));
+#endif
 	m_gs_renderers.push_back(GSSetting(static_cast<uint32>(GSRendererType::OGL_OpenCL),		"OpenGL",		"OpenCL"));
 #endif
 
@@ -199,9 +254,14 @@ void GSdxApp::Init()
 	m_gs_max_anisotropy.push_back(GSSetting(8, "8x", ""));
 	m_gs_max_anisotropy.push_back(GSSetting(16, "16x", ""));
 
-	m_gs_filter.push_back(GSSetting(0, "Nearest", ""));
-	m_gs_filter.push_back(GSSetting(1, "Bilinear", "Forced"));
-	m_gs_filter.push_back(GSSetting(2, "Bilinear", "PS2"));
+	m_gs_bifilter.push_back(GSSetting(static_cast<uint32>(BiFiltering::Nearest), "Nearest", ""));
+	m_gs_bifilter.push_back(GSSetting(static_cast<uint32>(BiFiltering::Forced_But_Sprite), "Bilinear", "Forced excluding sprite"));
+	m_gs_bifilter.push_back(GSSetting(static_cast<uint32>(BiFiltering::Forced), "Bilinear", "Forced"));
+	m_gs_bifilter.push_back(GSSetting(static_cast<uint32>(BiFiltering::PS2), "Bilinear", "PS2"));
+
+	m_gs_trifilter.push_back(GSSetting(static_cast<uint32>(TriFiltering::None), "None", ""));
+	m_gs_trifilter.push_back(GSSetting(static_cast<uint32>(TriFiltering::PS2), "Trilinear", ""));
+	m_gs_trifilter.push_back(GSSetting(static_cast<uint32>(TriFiltering::Forced), "Trilinear", "Ultra/Slow"));
 
 	m_gs_gl_ext.push_back(GSSetting(-1, "Auto", ""));
 	m_gs_gl_ext.push_back(GSSetting(0,  "Force-Disabled", ""));
@@ -211,11 +271,26 @@ void GSdxApp::Init()
 	m_gs_hack.push_back(GSSetting(1,  "Half", ""));
 	m_gs_hack.push_back(GSSetting(2,  "Full", ""));
 
-	m_gs_crc_level.push_back(GSSetting(0 , "None", "Debug"));
-	m_gs_crc_level.push_back(GSSetting(1 , "Minimum", "Debug"));
-	m_gs_crc_level.push_back(GSSetting(2 , "Partial", "OpenGL Recommended"));
-	m_gs_crc_level.push_back(GSSetting(3 , "Full", "Safest"));
-	m_gs_crc_level.push_back(GSSetting(4 , "Aggressive", ""));
+	m_gs_offset_hack.push_back(GSSetting(0,  "Off", ""));
+	m_gs_offset_hack.push_back(GSSetting(1,  "Normal", "Vertex"));
+	m_gs_offset_hack.push_back(GSSetting(2,  "Special", "Texture"));
+	m_gs_offset_hack.push_back(GSSetting(3,  "Special", "Texture - aggressive"));
+
+	m_gs_hw_mipmapping = {
+		GSSetting(HWMipmapLevel::Automatic, "Automatic", "Default"),
+		GSSetting(HWMipmapLevel::Off, "Off", ""),
+		GSSetting(HWMipmapLevel::Basic, "Basic", "Fast"),
+		GSSetting(HWMipmapLevel::Full, "Full", "Slow"),
+	};
+
+	m_gs_crc_level = {
+		GSSetting(CRCHackLevel::Automatic, "Automatic", "Default"),
+		GSSetting(CRCHackLevel::None , "None", "Debug"),
+		GSSetting(CRCHackLevel::Minimum, "Minimum", "Debug"),
+		GSSetting(CRCHackLevel::Partial, "Partial", "OpenGL Recommended"),
+		GSSetting(CRCHackLevel::Full, "Full", "Direct3D Recommended"),
+		GSSetting(CRCHackLevel::Aggressive, "Aggressive", ""),
+	};
 
 	m_gs_acc_blend_level.push_back(GSSetting(0, "None", "Fastest"));
 	m_gs_acc_blend_level.push_back(GSSetting(1, "Basic", "Recommended low-end PC"));
@@ -230,8 +305,8 @@ void GSdxApp::Init()
 	m_gs_tv_shaders.push_back(GSSetting(3, "Triangular filter", ""));
 	m_gs_tv_shaders.push_back(GSSetting(4, "Wave filter", ""));
 
-	m_gpu_renderers.push_back(GSSetting(static_cast<int8>(GPURendererType::D3D9_SW), "Direct3D9", "Software"));
-	m_gpu_renderers.push_back(GSSetting(static_cast<int8>(GPURendererType::D3D11_SW), "Direct3D11", "Software"));
+	m_gpu_renderers.push_back(GSSetting(static_cast<int8>(GPURendererType::D3D9_SW), "Direct3D 9", "Software"));
+	m_gpu_renderers.push_back(GSSetting(static_cast<int8>(GPURendererType::D3D11_SW), "Direct3D 11", "Software"));
 	m_gpu_renderers.push_back(GSSetting(static_cast<int8>(GPURendererType::NULL_Renderer), "Null", ""));
 
 	m_gpu_filter.push_back(GSSetting(0, "Nearest", ""));
@@ -284,36 +359,56 @@ void GSdxApp::Init()
 	m_default_configuration["capture_threads"]                            = "4";
 	m_default_configuration["CaptureHeight"]                              = "480";
 	m_default_configuration["CaptureWidth"]                               = "640";
-	m_default_configuration["crc_hack_level"]                             = "3";
+	m_default_configuration["clut_load_before_draw"]                      = "0";
+	m_default_configuration["crc_hack_level"]                             = std::to_string(static_cast<int8>(CRCHackLevel::Automatic));
 	m_default_configuration["CrcHacksExclusions"]                         = "";
 	m_default_configuration["debug_glsl_shader"]                          = "0";
 	m_default_configuration["debug_opengl"]                               = "0";
+	m_default_configuration["disable_hw_gl_draw"]                         = "0";
 	m_default_configuration["dump"]                                       = "0";
 	m_default_configuration["extrathreads"]                               = "2";
 	m_default_configuration["extrathreads_height"]                        = "4";
-	m_default_configuration["filter"]                                     = "2";
+	m_default_configuration["filter"]                                     = std::to_string(static_cast<int8>(BiFiltering::PS2));
 	m_default_configuration["force_texture_clear"]                        = "0";
 	m_default_configuration["fxaa"]                                       = "0";
 	m_default_configuration["interlace"]                                  = "7";
 	m_default_configuration["large_framebuffer"]                          = "1";
+	m_default_configuration["linear_present"]                             = "1";
 	m_default_configuration["MaxAnisotropy"]                              = "0";
 	m_default_configuration["mipmap"]                                     = "1";
+	m_default_configuration["mipmap_hw"]                                  = std::to_string(static_cast<int>(HWMipmapLevel::Automatic));
 	m_default_configuration["ModeHeight"]                                 = "480";
 	m_default_configuration["ModeWidth"]                                  = "640";
 	m_default_configuration["NTSC_Saturation"]                            = "1";
 	m_default_configuration["ocldev"]                                     = "";
+#ifdef _WIN32
+	m_default_configuration["osd_fontname"]                               = "C:\\Windows\\Fonts\\tahoma.ttf";
+#else
+	m_default_configuration["osd_fontname"]                               = "/usr/share/fonts/truetype/freefont/FreeSerif.ttf";
+#endif
+	m_default_configuration["osd_fontsize"]                               = "32";
+	m_default_configuration["osd_indicator_enabled"]                      = "0";
+	m_default_configuration["osd_log_enabled"]                            = "1";
+	m_default_configuration["osd_log_speed"]                              = "6";
+	m_default_configuration["osd_monitor_enabled"]                        = "0";
+	m_default_configuration["osd_transparency"]                           = "25";
+	m_default_configuration["osd_max_log_messages"]                       = "3";
 	m_default_configuration["override_geometry_shader"]                   = "-1";
+	m_default_configuration["override_GL_ARB_copy_image"]                 = "-1";
 	m_default_configuration["override_GL_ARB_clear_texture"]              = "-1";
+	m_default_configuration["override_GL_ARB_clip_control"]               = "-1";
+	m_default_configuration["override_GL_ARB_direct_state_access"]        = "-1";
 	m_default_configuration["override_GL_ARB_draw_buffers_blend"]         = "-1";
 	m_default_configuration["override_GL_ARB_get_texture_sub_image"]      = "-1";
 	m_default_configuration["override_GL_ARB_gpu_shader5"]                = "-1";
 	m_default_configuration["override_GL_ARB_shader_image_load_store"]    = "-1";
 	m_default_configuration["override_GL_ARB_viewport_array"]             = "-1";
+	m_default_configuration["override_GL_ARB_texture_barrier"]            = "-1";
 	m_default_configuration["override_GL_EXT_texture_filter_anisotropic"] = "-1";
 	m_default_configuration["paltex"]                                     = "0";
-	m_default_configuration["png_compression_level"]                      = to_string(Z_BEST_SPEED);
+	m_default_configuration["png_compression_level"]                      = std::to_string(Z_BEST_SPEED);
 	m_default_configuration["preload_frame_with_gs_data"]                 = "0";
-	m_default_configuration["Renderer"]                                   = to_string(static_cast<int>(GSRendererType::Default));
+	m_default_configuration["Renderer"]                                   = std::to_string(static_cast<int>(GSRendererType::Default));
 	m_default_configuration["resx"]                                       = "1024";
 	m_default_configuration["resy"]                                       = "1024";
 	m_default_configuration["save"]                                       = "0";
@@ -335,19 +430,24 @@ void GSdxApp::Init()
 	m_default_configuration["UserHacks_align_sprite_X"]                   = "0";
 	m_default_configuration["UserHacks_AlphaHack"]                        = "0";
 	m_default_configuration["UserHacks_AlphaStencil"]                     = "0";
-	m_default_configuration["UserHacks_ColorDepthClearOverlap"]           = "0";
+	m_default_configuration["UserHacks_AutoFlush"]                        = "0";
 	m_default_configuration["UserHacks_DisableDepthSupport"]              = "0";
+	m_default_configuration["UserHacks_CPU_FB_Conversion"]                = "0";
 	m_default_configuration["UserHacks_DisableGsMemClear"]                = "0";
+	m_default_configuration["UserHacks_DisableNVhack"]                    = "0";
 	m_default_configuration["UserHacks_DisablePartialInvalidation"]       = "0";
 	m_default_configuration["UserHacks_HalfPixelOffset"]                  = "0";
 	m_default_configuration["UserHacks_merge_pp_sprite"]                  = "0";
 	m_default_configuration["UserHacks_MSAA"]                             = "0";
+	m_default_configuration["UserHacks_unscale_point_line"]               = "0";
 	m_default_configuration["UserHacks_round_sprite_offset"]              = "0";
-	m_default_configuration["UserHacks_safe_fbmask"]                      = "0";
 	m_default_configuration["UserHacks_SkipDraw"]                         = "0";
 	m_default_configuration["UserHacks_SpriteHack"]                       = "0";
 	m_default_configuration["UserHacks_TCOffset"]                         = "0";
+	m_default_configuration["UserHacks_TextureInsideRt"]                  = "0";
+	m_default_configuration["UserHacks_TriFilter"]                        = std::to_string(static_cast<int8>(TriFiltering::None));
 	m_default_configuration["UserHacks_WildHack"]                         = "0";
+	m_default_configuration["wrap_gs_mem"]                                = "0";
 	m_default_configuration["vsync"]                                      = "0";
 }
 
@@ -415,7 +515,7 @@ void GSdxApp::SetConfigDir(const char* dir)
 	}
 }
 
-string GSdxApp::GetConfigS(const char* entry)
+std::string GSdxApp::GetConfigS(const char* entry)
 {
 	char buff[4096] = {0};
 	auto def = m_default_configuration.find(entry);
@@ -427,7 +527,7 @@ string GSdxApp::GetConfigS(const char* entry)
 		GetPrivateProfileString(m_section.c_str(), entry, "", buff, countof(buff), m_ini.c_str());
 	}
 
-	return string(buff);
+	return {buff};
 }
 
 void GSdxApp::SetConfig(const char* entry, const char* value)
@@ -459,4 +559,14 @@ void GSdxApp::SetConfig(const char* entry, int value)
 	sprintf(buff, "%d", value);
 
 	SetConfig(entry, buff);
+}
+
+void GSdxApp::SetCurrentRendererType(GSRendererType type)
+{
+	m_current_renderer_type = type;
+}
+
+GSRendererType GSdxApp::GetCurrentRendererType()
+{
+	return m_current_renderer_type;
 }

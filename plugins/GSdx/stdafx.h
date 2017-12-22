@@ -45,6 +45,10 @@
 
 #define D3DCOLORWRITEENABLE_RGBA (D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN | D3DCOLORWRITEENABLE_BLUE | D3DCOLORWRITEENABLE_ALPHA)
 
+#else
+
+#include <fcntl.h>
+
 #endif
 
 
@@ -54,6 +58,10 @@
 #define __CL_ENABLE_EXCEPTIONS
 #include <CL/cl.hpp>
 
+#endif
+
+#ifdef __x86_64__
+#define _M_AMD64
 #endif
 
 // put these into vc9/common7/ide/usertype.dat to have them highlighted
@@ -66,7 +74,7 @@ typedef unsigned int uint32;
 typedef signed int int32;
 typedef unsigned long long uint64;
 typedef signed long long int64;
-#ifdef __x86_64__
+#ifdef _M_AMD64
 typedef uint64 uptr;
 #else
 typedef uint32 uptr;
@@ -76,6 +84,7 @@ typedef uint32 uptr;
 // xbyak compatibilities
 typedef int64 sint64;
 #define MIE_INTEGER_TYPE_DEFINED
+#define XBYAK_ENABLE_OMITTED_OPERAND
 
 // stdc
 
@@ -90,8 +99,14 @@ typedef int64 sint64;
 #include <cstring>
 #include <cassert>
 
+#if __GNUC__ > 5 || ( __GNUC__ == 5 && __GNUC_MINOR__ >= 4 )
+#include <codecvt>
+#include <locale>
+#endif
+
 #include <complex>
 #include <string>
+#include <array>
 #include <vector>
 #include <list>
 #include <map>
@@ -102,23 +117,13 @@ typedef int64 sint64;
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
-
-using namespace std;
-
+#include <functional>
 #include <memory>
 
 #include <zlib.h>
 
-#if _MSC_VER >= 1800 || !defined(_WIN32)
 #include <unordered_map>
 #include <unordered_set>
-#define hash_map unordered_map
-#define hash_set unordered_set
-#else
-#include <hash_map>
-#include <hash_set>
-using namespace stdext;
-#endif
 
 #ifdef _WIN32
 
@@ -127,60 +132,6 @@ using namespace stdext;
 	#include <GL/glext.h>
 	#include <GL/wglext.h>
 	#include "GLLoader.h"
-
-	// hashing algoritms at: http://www.cris.com/~Ttwang/tech/inthash.htm
-	// default hash_compare does ldiv and other crazy stuff to reduce speed
-
-	template<> class hash_compare<uint32>
-	{
-	public:
-		enum {bucket_size = 1};
-
-		size_t operator()(uint32 key) const
-		{
-			key += ~(key << 15);
-			key ^= (key >> 10);
-			key += (key << 3);
-			key ^= (key >> 6);
-			key += ~(key << 11);
-			key ^= (key >> 16);
-
-			return (size_t)key;
-		}
-
-		bool operator()(uint32 a, uint32 b) const
-		{
-			return a < b;
-		}
-	};
-
-	template<> class hash_compare<uint64>
-	{
-	public:
-		enum {bucket_size = 1};
-
-		size_t operator()(uint64 key) const
-		{
-			key += ~(key << 32);
-			key ^= (key >> 22);
-			key += ~(key << 13);
-			key ^= (key >> 8);
-			key += (key << 3);
-			key ^= (key >> 15);
-			key += ~(key << 27);
-			key ^= (key >> 31);
-
-			return (size_t)key;
-		}
-
-		bool operator()(uint64 a, uint64 b) const
-		{
-			return a < b;
-		}
-	};
-
-	#define vsnprintf _vsnprintf
-	#define snprintf _snprintf
 
 	#define DIRECTORY_SEPARATOR '\\'
 
@@ -198,9 +149,6 @@ using namespace stdext;
 #endif
 
 #ifdef _MSC_VER
-#if _MSC_VER < 1900
-    #define alignas(n) __declspec(align(n))
-#endif
 
     #define EXPORT_C_(type) extern "C" type __stdcall
     #define EXPORT_C EXPORT_C_(void)
@@ -261,29 +209,43 @@ using namespace stdext;
 
 #define ASSERT assert
 
-#ifdef __x86_64__
-
-	#define _M_AMD64
-
+#ifdef _M_AMD64
+	// Yeah let use mips naming ;)
+	#ifdef _WIN64
+	#define a0 rcx
+	#define a1 rdx
+	#define a2 r8
+	#define a3 r9
+	#define t0 rdi
+	#define t1 rsi
+	#else
+	#define a0 rdi
+	#define a1 rsi
+	#define a2 rdx
+	#define a3 rcx
+	#define t0 r8
+	#define t1 r9
+	#endif
 #endif
 
 // sse
-#if defined(__GNUC__) && !defined(__x86_64__)
+#if defined(__GNUC__)
+
 // Convert gcc see define into GSdx (windows) define
 #if defined(__AVX2__)
-	#define _M_SSE 0x501
+	#if defined(__x86_64__)
+		#define _M_SSE 0x500 // TODO
+	#else
+		#define _M_SSE 0x501
+	#endif
 #elif defined(__AVX__)
 	#define _M_SSE 0x500
-#elif defined(__SSE4_2__)
-	#define _M_SSE 0x402
 #elif defined(__SSE4_1__)
 	#define _M_SSE 0x401
 #elif defined(__SSSE3__)
 	#define _M_SSE 0x301
 #elif defined(__SSE2__)
 	#define _M_SSE 0x200
-#elif defined(__SSE__)
-	#define _M_SSE 0x100
 #endif
 
 #endif
@@ -362,11 +324,17 @@ using namespace stdext;
 
 	// http://svn.reactos.org/svn/reactos/trunk/reactos/include/crt/mingw32/intrin_x86.h?view=markup
 
-	__forceinline unsigned char _BitScanForward(unsigned long* const Index, const unsigned long Mask)
+	__forceinline int _BitScanForward(unsigned long* const Index, const unsigned long Mask)
 	{
-		__asm__("bsfl %k[Mask], %k[Index]" : [Index] "=r" (*Index) : [Mask] "mr" (Mask));
-		
+#if defined(__GCC_ASM_FLAG_OUTPUTS__) && 0
+		// Need GCC6 to test the code validity
+		int flag;
+		__asm__("bsfl %k[Mask], %k[Index]" : [Index] "=r" (*Index), "=@ccz" (flag) : [Mask] "mr" (Mask));
+		return flag;
+#else
+		__asm__("bsfl %k[Mask], %k[Index]" : [Index] "=r" (*Index) : [Mask] "mr" (Mask) : "cc");
 		return Mask ? 1 : 0;
+#endif
 	}
 
 	#ifdef __GNUC__
@@ -392,23 +360,19 @@ using namespace stdext;
 
 #endif
 
-extern string format(const char* fmt, ...);
-
-struct delete_object {template<class T> void operator()(T& p) {delete p;}};
-struct delete_first {template<class T> void operator()(T& p) {delete p.first;}};
-struct delete_second {template<class T> void operator()(T& p) {delete p.second;}};
-struct aligned_free_object {template<class T> void operator()(T& p) {_aligned_free(p);}};
-struct aligned_free_first {template<class T> void operator()(T& p) {_aligned_free(p.first);}};
-struct aligned_free_second {template<class T> void operator()(T& p) {_aligned_free(p.second);}};
+extern std::string format(const char* fmt, ...);
 
 extern void* vmalloc(size_t size, bool code);
 extern void vmfree(void* ptr, size_t size);
 
-#ifdef _WIN32
+extern void* fifo_alloc(size_t size, size_t repeat);
+extern void fifo_free(void* ptr, size_t size, size_t repeat);
 
-	#ifdef ENABLE_VTUNE
+#ifdef ENABLE_VTUNE
 
-	#include <JITProfiling.h>
+	#include "jitprofiling.h"
+
+	#ifdef _WIN32
 
 	#pragma comment(lib, "jitprofiling.lib")
 
@@ -424,7 +388,19 @@ extern void vmfree(void* ptr, size_t size);
 #if defined(_DEBUG)
 #define GL_CACHE(...) GL_INSERT(GL_DEBUG_TYPE_OTHER, 0xFEAD, GL_DEBUG_SEVERITY_NOTIFICATION, __VA_ARGS__)
 #else
-#define GL_CACHE(...) (0);
+#define GL_CACHE(...) (void)(0);
+#endif
+
+#if defined(ENABLE_TRACE_REG) && defined(_DEBUG)
+#define GL_REG(...) GL_INSERT(GL_DEBUG_TYPE_OTHER, 0xB0B0, GL_DEBUG_SEVERITY_NOTIFICATION, __VA_ARGS__)
+#else
+#define GL_REG(...) (void)(0);
+#endif
+
+#if defined(ENABLE_EXTRA_LOG) && defined(_DEBUG)
+#define GL_DBG(...) GL_INSERT(GL_DEBUG_TYPE_OTHER, 0xD0D0, GL_DEBUG_SEVERITY_NOTIFICATION, __VA_ARGS__)
+#else
+#define GL_DBG(...) (void)(0);
 #endif
 
 #if defined(ENABLE_OGL_DEBUG)
@@ -441,18 +417,13 @@ struct GLAutoPop {
 #define GL_INS(...)		GL_INSERT(GL_DEBUG_TYPE_ERROR, 0xDEAD, GL_DEBUG_SEVERITY_MEDIUM, __VA_ARGS__)
 #define GL_PERF(...)	GL_INSERT(GL_DEBUG_TYPE_PERFORMANCE, 0xFEE1, GL_DEBUG_SEVERITY_NOTIFICATION, __VA_ARGS__)
 #else
-#define GL_PUSH_(...) (0);
-#define GL_PUSH(...) (0);
-#define GL_POP()     (0);
-#define GL_INS(...)  (0);
-#define GL_PERF(...) (0);
+#define GL_PUSH_(...) (void)(0);
+#define GL_PUSH(...) (void)(0);
+#define GL_POP()     (void)(0);
+#define GL_INS(...)  (void)(0);
+#define GL_PERF(...) (void)(0);
 #endif
 
 // Helper path to dump texture
-#ifdef _WIN32
-const std::string root_sw("c:\\temp1\\_");
-const std::string root_hw("c:\\temp2\\_");
-#else
-const std::string root_sw("/tmp/GS_SW_dump/");
-const std::string root_hw("/tmp/GS_HW_dump/");
-#endif
+extern const std::string root_sw;
+extern const std::string root_hw;

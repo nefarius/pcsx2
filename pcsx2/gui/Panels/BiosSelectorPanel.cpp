@@ -48,10 +48,6 @@ Panels::BaseSelectorPanel::BaseSelectorPanel( wxWindow* parent )
 	Bind(wxEVT_SHOW, &BaseSelectorPanel::OnShow, this);
 }
 
-Panels::BaseSelectorPanel::~BaseSelectorPanel() throw()
-{
-}
-
 void Panels::BaseSelectorPanel::OnShow(wxShowEvent& evt)
 {
 	evt.Skip();
@@ -105,9 +101,9 @@ Panels::BiosSelectorPanel::BiosSelectorPanel( wxWindow* parent )
 		_("Select folder with PS2 BIOS roms")		// dir picker popup label
 	);
 
-	m_ComboBox->SetFont( wxFont( m_ComboBox->GetFont().GetPointSize()+1, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL, false, L"Lucida Console" ) );
+	m_ComboBox->SetFont( pxGetFixedFont( m_ComboBox->GetFont().GetPointSize()+1 ) );
 	m_ComboBox->SetMinSize( wxSize( wxDefaultCoord, std::max( m_ComboBox->GetMinSize().GetHeight(), 96 ) ) );
-	
+
 	//if (InstallationMode != InstallMode_Portable)
 		m_FolderPicker->SetStaticDesc( _("Click the Browse button to select a different folder where PCSX2 will look for PS2 BIOS roms.") );
 
@@ -120,10 +116,6 @@ Panels::BiosSelectorPanel::BiosSelectorPanel( wxWindow* parent )
 	*this	+= m_FolderPicker	| StdExpand();
 
 	Bind(wxEVT_BUTTON, &BiosSelectorPanel::OnRefreshSelections, this, refreshButton->GetId());
-}
-
-Panels::BiosSelectorPanel::~BiosSelectorPanel() throw ()
-{
 }
 
 void Panels::BiosSelectorPanel::Apply()

@@ -16,6 +16,7 @@
 #include "PrecompiledHeader.h"
 #include "App.h"
 #include "AppSaveStates.h"
+#include "ConsoleLogger.h"
 
 #include "Common.h"
 
@@ -47,13 +48,13 @@ class SysExecEvent_ClearSavingLoadingFlag : public SysExecEvent
 public:
 	wxString GetEventName() const { return L"ClearSavingLoadingFlag"; }
 
-	virtual ~SysExecEvent_ClearSavingLoadingFlag() throw() { }
+	virtual ~SysExecEvent_ClearSavingLoadingFlag() = default;
 	SysExecEvent_ClearSavingLoadingFlag()
 	{
 	}
-	
+
 	SysExecEvent_ClearSavingLoadingFlag* Clone() const { return new SysExecEvent_ClearSavingLoadingFlag(); }
-	
+
 protected:
 	void InvokeEvent()
 	{
@@ -126,7 +127,7 @@ void States_registerLoadBackupMenuItem( wxMenuItem* loadBackupMenuItem )
 
 static void OnSlotChanged()
 {
-	Console.Warning( " > Selected savestate slot %d", StatesC);
+	OSDlog( Color_StrongGreen, true, " > Selected savestate slot %d", StatesC );
 
 	if( GSchangeSaveState != NULL )
 		GSchangeSaveState(StatesC, SaveStateBase::GetFilename(StatesC).mb_str());

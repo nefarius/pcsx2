@@ -46,7 +46,7 @@ namespace Dialogs
 		bool				m_allowApplyActivation;
 
 	public:
-		virtual ~BaseConfigurationDialog() throw();
+		virtual ~BaseConfigurationDialog() = default;
 		BaseConfigurationDialog(wxWindow* parent, const wxString& title, int idealWidth);
 
 	public:
@@ -87,7 +87,7 @@ namespace Dialogs
 	class SysConfigDialog : public BaseConfigurationDialog
 	{
 	public:
-		virtual ~SysConfigDialog() throw() {}
+		virtual ~SysConfigDialog() = default;
 		SysConfigDialog(wxWindow* parent=NULL);
 		static wxString GetNameStatic() { return L"CoreSettings"; }
 		wxString GetDialogName() const { return GetNameStatic(); }
@@ -113,28 +113,13 @@ namespace Dialogs
 	};
 
 	// --------------------------------------------------------------------------------------
-	//  InterfaceConfigDialog
-	// --------------------------------------------------------------------------------------
-	class InterfaceConfigDialog : public BaseConfigurationDialog
-	{
-	public:
-		virtual ~InterfaceConfigDialog() throw() {}
-		InterfaceConfigDialog(wxWindow* parent=NULL);
-		static wxString GetNameStatic() { return L"InterfaceConfig"; }
-		wxString GetDialogName() const { return GetNameStatic(); }
-
-	protected:
-		virtual wxString& GetConfSettingsTabName() const { return g_Conf->AppSettingsTabName; }
-	};
-
-	// --------------------------------------------------------------------------------------
 	//  InterfaceLanguageDialog
 	// --------------------------------------------------------------------------------------
 	class InterfaceLanguageDialog : public BaseConfigurationDialog
 	{
 	public:
 		InterfaceLanguageDialog(wxWindow* parent = NULL);
-		virtual ~InterfaceLanguageDialog() throw() { }
+		virtual ~InterfaceLanguageDialog() = default;
 
 		static wxString GetNameStatic() { return L"InterfaceLanguage"; }
 		wxString GetDialogName() const { return GetNameStatic(); }
@@ -155,7 +140,7 @@ namespace Dialogs
 		Panels::BaseMcdListPanel*	m_panel_mcdlist;
 
 	public:
-		virtual ~McdConfigDialog() throw() {}
+		virtual ~McdConfigDialog() = default;
 		McdConfigDialog(wxWindow* parent=NULL);
 		static wxString GetNameStatic() { return L"McdConfig"; }
 		wxString GetDialogName() const { return GetNameStatic(); }
@@ -171,7 +156,7 @@ namespace Dialogs
 	class GameDatabaseDialog : public BaseConfigurationDialog
 	{
 	public:
-		virtual ~GameDatabaseDialog() throw() {}
+		virtual ~GameDatabaseDialog() = default;
 		GameDatabaseDialog(wxWindow* parent=NULL);
 		static wxString GetNameStatic() { return L"GameDatabase"; }
 		wxString GetDialogName() const { return GetNameStatic(); }
@@ -188,7 +173,7 @@ namespace Dialogs
 	protected:
 
 	public:
-		virtual ~ComponentsConfigDialog() throw() {}
+		virtual ~ComponentsConfigDialog() = default;
 		ComponentsConfigDialog(wxWindow* parent=NULL);
 		static wxString GetNameStatic() { return L"AppSettings"; }
 		wxString GetDialogName() const { return GetNameStatic(); }
@@ -213,13 +198,14 @@ namespace Dialogs
 	#ifdef __WXMSW__
 		pxCheckBox*			m_check_CompressNTFS;
 	#endif
+		pxCheckBox*			m_check_psx;
 
 	public:
-		virtual ~CreateMemoryCardDialog()  throw() {}
+		virtual ~CreateMemoryCardDialog()  = default;
 		CreateMemoryCardDialog( wxWindow* parent, const wxDirName& mcdpath, const wxString& suggested_mcdfileName);
 	
 		//duplicate of MemoryCardFile::Create. Don't know why the existing method isn't used. - avih
-		static bool CreateIt( const wxString& mcdFile, uint sizeInMB );
+		static bool CreateIt( const wxString& mcdFile, uint sizeInMB, bool isPSX );
 		wxString result_createdMcdFilename;
 		//wxDirName GetPathToMcds() const;
 
@@ -241,7 +227,7 @@ namespace Dialogs
 		pxRadioPanel* m_radio_CardType;
 
 	public:
-		virtual ~ConvertMemoryCardDialog()  throw() {}
+		virtual ~ConvertMemoryCardDialog()  = default;
 		ConvertMemoryCardDialog( wxWindow* parent, const wxDirName& mcdPath, const AppConfig::McdOptions& mcdSourceConfig );
 	
 	protected:

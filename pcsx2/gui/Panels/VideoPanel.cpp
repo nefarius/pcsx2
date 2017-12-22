@@ -101,7 +101,6 @@ void Panels::FramelimiterPanel::AppStatusEvent_OnSettingsApplied()
 
 void Panels::FramelimiterPanel::ApplyConfigToGui( AppConfig& configToApply, int flags )
 {
-	const AppConfig::GSWindowOptions& appwin( configToApply.GSWindow );
 	const AppConfig::FramerateOptions& appfps( configToApply.Framerate );
 	const Pcsx2Config::GSOptions& gsconf( configToApply.EmuOptions.GS );
 
@@ -158,6 +157,10 @@ void Panels::FramelimiterPanel::Apply()
 	}
 
 	appfps.SanityCheck();
+
+	// If the user has a command line override specified, we need to disable it
+	// so that their changes take effect
+	wxGetApp().Overrides.ProfilingMode = false;
 }
 
 // --------------------------------------------------------------------------------------
@@ -288,6 +291,8 @@ Panels::VideoPanel::VideoPanel( wxWindow* parent ) :
 		_t("For troubleshooting potential bugs in the MTGS only, as it is potentially very slow.")
 	);
 
+	m_restore_defaults = new wxButton(right, wxID_DEFAULT, _("Restore Defaults"));
+
 	m_check_DisableOutput = new pxCheckBox( left, _("Disable all GS output"),
 		_t("Completely disables all GS plugin activity; ideal for benchmarking EEcore components.")
 	);
@@ -315,6 +320,7 @@ Panels::VideoPanel::VideoPanel( wxWindow* parent ) :
 
 	*right		+= m_span		| pxExpand;
 	*right		+= 5;
+	*right		+= m_restore_defaults | StdButton();
 
 	*left		+= m_fpan		| pxExpand;
 	*left		+= 5;
@@ -326,7 +332,19 @@ Panels::VideoPanel::VideoPanel( wxWindow* parent ) :
 
 	*this		+= s_table	| pxExpand;
 
+	Bind(wxEVT_BUTTON, &VideoPanel::Defaults_Click, this, wxID_DEFAULT);
 	AppStatusEvent_OnSettingsApplied();
+}
+
+void Panels::VideoPanel::Defaults_Click(wxCommandEvent& evt)
+{
+	AppConfig config = *g_Conf;
+	config.EmuOptions.GS = Pcsx2Config::GSOptions();
+	config.Framerate = AppConfig::FramerateOptions();
+	VideoPanel::ApplyConfigToGui(config);
+	m_fpan->ApplyConfigToGui(config);
+	m_span->ApplyConfigToGui(config);
+	evt.Skip();
 }
 
 void Panels::VideoPanel::OnOpenWindowSettings( wxCommandEvent& evt )

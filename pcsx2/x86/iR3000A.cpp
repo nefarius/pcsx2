@@ -49,7 +49,7 @@ u32 s_psxrecblocks[] = {0};
 uptr psxRecLUT[0x10000];
 uptr psxhwLUT[0x10000];
 
-#define HWADDR(mem) (psxhwLUT[mem >> 16] + (mem))
+static __fi u32 HWADDR(u32 mem) { return psxhwLUT[mem >> 16] + mem; }
 
 static RecompiledCodeReserve* recMem = NULL;
 
@@ -101,8 +101,6 @@ static u32 psxdump = 0;
 
 static void __fastcall iopRecRecompile( const u32 startpc );
 
-static u32 s_store_ebp, s_store_esp;
-
 // Recompiled code buffer for EE recompiler dispatchers!
 static u8 __pagealigned iopRecDispatchers[__pagesize];
 
@@ -128,7 +126,7 @@ static DynGenFunc* _DynGen_JITCompile()
 
 	u8* retval = xGetPtr();
 
-	xFastCall(iopRecRecompile, ptr[&psxRegs.pc] );
+	xFastCall((void*)iopRecRecompile, ptr[&psxRegs.pc] );
 
 	xMOV( eax, ptr[&psxRegs.pc] );
 	xMOV( ebx, eax );
@@ -142,7 +140,7 @@ static DynGenFunc* _DynGen_JITCompile()
 static DynGenFunc* _DynGen_JITCompileInBlock()
 {
 	u8* retval = xGetPtr();
-	xJMP( iopJITCompile );
+	xJMP( (void*)iopJITCompile );
 	return (DynGenFunc*)retval;
 }
 
@@ -172,9 +170,13 @@ static DynGenFunc* _DynGen_EnterRecompiledCode()
 	u8* retval = xGetPtr();
 
 	{ // Properly scope the frame prologue/epilogue
+#ifdef ENABLE_VTUNE
+		xScopedStackFrame frame(true);
+#else
 		xScopedStackFrame frame(IsDevBuild);
+#endif
 
-		xJMP(iopDispatcherReg);
+		xJMP((void*)iopDispatcherReg);
 
 		// Save an exit point
 		iopExitRecompiledCode = (DynGenFunc*)xGetPtr();
@@ -191,14 +193,14 @@ static void _DynGen_Dispatchers()
 	HostSys::MemProtectStatic( iopRecDispatchers, PageAccess_ReadWrite() );
 
 	// clear the buffer to 0xcc (easier debugging).
-	memset_8<0xcc,__pagesize>( iopRecDispatchers );
+	memset( iopRecDispatchers, 0xcc, __pagesize);
 
 	xSetPtr( iopRecDispatchers );
 
 	// Place the EventTest and DispatcherReg stuff at the top, because they get called the
 	// most and stand to benefit from strong alignment and direct referencing.
 	iopDispatcherEvent = (DynGenFunc*)xGetPtr();
-	xFastCall(recEventTest );
+	xFastCall((void*)recEventTest );
 	iopDispatcherReg	= _DynGen_DispatcherReg();
 
 	iopJITCompile			= _DynGen_JITCompile();
@@ -281,8 +283,11 @@ static void iIopDumpBlock( int startpc, u8 * ptr )
 		f2.Write( ptr, (uptr)x86Ptr - (uptr)ptr );
 	}
 
-	std::system( wxsFormat( L"objdump -D -b binary -mi386 -M intel --no-show-raw-insn %s >> %s; rm %s",
+	int status = std::system( wxsFormat( L"objdump -D -b binary -mi386 -M intel --no-show-raw-insn %s >> %s; rm %s",
 				"mydump1", WX_STR(filename), "mydump1").mb_str() );
+
+	if (!WIFEXITED(status))
+		Console.Error("IOP dump didn't terminate normally");
 #endif
 }
 
@@ -500,39 +505,53 @@ void psxRecompileCodeConst0(R3000AFNPTR constcode, R3000AFNPTR_INFO constscode, 
 	PSX_DEL_CONST(_Rd_);
 }
 
+static void psxRecompileIrxImport()
+{
+	u32 import_table = irxImportTableAddr(psxpc - 4);
+	u16 index = psxRegs.code & 0xffff;
+	if (!import_table)
+		return;
+
+	const std::string libname = iopMemReadString(import_table + 12, 8);
+
+	irxHLE hle = irxImportHLE(libname, index);
+#ifdef PCSX2_DEVBUILD
+	const irxDEBUG debug = irxImportDebug(libname, index);
+	const char* funcname = irxImportFuncname(libname, index);
+#else
+	const irxDEBUG debug = 0;
+	const char *funcname = nullptr;
+#endif
+
+	if (!hle && !debug && (!SysTraceActive(IOP.Bios) || !funcname))
+		return;
+
+	xMOV(ptr32[&psxRegs.code], psxRegs.code);
+	xMOV(ptr32[&psxRegs.pc], psxpc);
+	_psxFlushCall(FLUSH_NODESTROY);
+
+	if (SysTraceActive(IOP.Bios)) {
+		xPUSH((uptr)funcname);
+		xFastCall((void *)irxImportLog_rec, import_table, index);
+	}
+
+	if (debug)
+		xFastCall((void *)debug);
+
+	if (hle) {
+		xFastCall((void *)hle);
+		xTEST(eax, eax);
+		xJNZ(iopDispatcherReg);
+	}
+}
+
 // rt = rs op imm16
 void psxRecompileCodeConst1(R3000AFNPTR constcode, R3000AFNPTR_INFO noconstcode)
 {
     if ( ! _Rt_ ) {
 		// check for iop module import table magic
-        if (psxRegs.code >> 16 == 0x2400) {
-			xMOV(ptr32[&psxRegs.code], psxRegs.code );
-			xMOV(ptr32[&psxRegs.pc], psxpc );
-			_psxFlushCall(FLUSH_NODESTROY);
-
-			const char *libname = irxImportLibname(psxpc);
-			u16 index = psxRegs.code & 0xffff;
-#ifdef PCSX2_DEVBUILD
-			const char *funcname = irxImportFuncname(libname, index);
-			irxDEBUG debug = irxImportDebug(libname, index);
-
-			if (SysTraceActive(IOP.Bios)) {
-				xMOV(ecx, (uptr)libname);
-				xMOV(edx, index);
-				xPUSH((uptr)funcname);
-				xCALL(irxImportLog);
-			}
-
-			if (debug)
-				xFastCall(debug);
-#endif
-			irxHLE hle = irxImportHLE(libname, index);
-			if (hle) {
-				xFastCall(hle);
-				xCMP(eax, 0);
-				xJNE(iopDispatcherReg);
-			}
-		}
+		if (psxRegs.code >> 16 == 0x2400)
+			psxRecompileIrxImport();
         return;
     }
 
@@ -908,7 +927,7 @@ static void iPsxBranchTest(u32 newpc, u32 cpuBranch)
 		xSUB(ptr32[&iopCycleEE], eax);
 		xJLE(iopExitRecompiledCode);
 
-		xFastCall(iopEventTest);
+		xFastCall((void*)iopEventTest);
 
 		if( newpc != 0xffffffff )
 		{
@@ -930,7 +949,7 @@ static void iPsxBranchTest(u32 newpc, u32 cpuBranch)
 		xSUB(eax, ptr32[&g_iopNextEventCycle]);
 		xForwardJS<u8> nointerruptpending;
 
-		xFastCall(iopEventTest);
+		xFastCall((void*)iopEventTest);
 
 		if( newpc != 0xffffffff ) {
 			xCMP(ptr32[&psxRegs.pc], newpc);
@@ -967,7 +986,7 @@ void rpsxSYSCALL()
 
 	//xMOV( ecx, 0x20 );			// exception code
 	//xMOV( edx, psxbranch==1 );	// branch delay slot?
-	xFastCall(psxException, 0x20, psxbranch == 1 );
+	xFastCall((void*)psxException, 0x20, psxbranch == 1 );
 
 	xCMP(ptr32[&psxRegs.pc], psxpc-4);
 	j8Ptr[0] = JE8(0);
@@ -990,7 +1009,7 @@ void rpsxBREAK()
 
 	//xMOV( ecx, 0x24 );			// exception code
 	//xMOV( edx, psxbranch==1 );	// branch delay slot?
-	xFastCall(psxException, 0x24, psxbranch == 1 );
+	xFastCall((void*)psxException, 0x24, psxbranch == 1 );
 
 	xCMP(ptr32[&psxRegs.pc], psxpc-4);
 	j8Ptr[0] = JE8(0);
@@ -1111,9 +1130,15 @@ static void __fastcall iopRecRecompile( const u32 startpc )
 
 	_initX86regs();
 
+	if ((psxHu32(HW_ICFG) & 8) && (HWADDR(startpc) == 0xa0 || HWADDR(startpc) == 0xb0 || HWADDR(startpc) == 0xc0)) {
+		xFastCall((void*)psxBiosCall);
+		xTEST(al, al);
+		xJNZ(iopDispatcherReg);
+	}
+
 	if( IsDebugBuild )
 	{
-		xFastCall(PreBlockCheck, psxpc);
+		xFastCall((void*)PreBlockCheck, psxpc);
 	}
 
 	// go until the next branch

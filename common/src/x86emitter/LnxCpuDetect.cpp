@@ -22,12 +22,12 @@
 // FreeBSD/OsX need something far more complicated (apparently)
 void x86capabilities::CountLogicalCores()
 {
-	// Note : GetCPUCount uses sysconf( _SC_NPROCESSORS_ONLN ) internally, which can return 1
-	// if sysconf info isn't available (a long standing linux bug).  There are no fallbacks or
-	// alternatives, apparently.
-	LogicalCores = wxThread::GetCPUCount();
+    // Note : GetCPUCount uses sysconf( _SC_NPROCESSORS_ONLN ) internally, which can return 1
+    // if sysconf info isn't available (a long standing linux bug).  There are no fallbacks or
+    // alternatives, apparently.
+    LogicalCores = wxThread::GetCPUCount();
 }
 
 // Not implemented yet for linux (see cpudetect_internal.h for details)
-SingleCoreAffinity::SingleCoreAffinity() {}
-SingleCoreAffinity::~SingleCoreAffinity() throw() {}
+SingleCoreAffinity::SingleCoreAffinity() = default;
+SingleCoreAffinity::~SingleCoreAffinity() = default;

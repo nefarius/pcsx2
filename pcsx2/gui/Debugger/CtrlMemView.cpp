@@ -58,6 +58,7 @@ enum MemoryViewMenuIdentifiers
 	ID_MEMVIEW_COPYVALUE_64,
 	ID_MEMVIEW_COPYVALUE_128,
 	ID_MEMVIEW_DUMP,
+	ID_MEMVIEW_ALIGNWINDOW,
 };
 
 CtrlMemView::CtrlMemView(wxWindow* parent, DebugInterface* _cpu)
@@ -74,27 +75,23 @@ CtrlMemView::CtrlMemView(wxWindow* parent, DebugInterface* _cpu)
 	addressStart = charWidth;
 	hexStart = addressStart + 9*charWidth;
 
-	setRowSize(16);
+	setRowSize(g_Conf->EmuOptions.Debugger.MemoryViewBytesPerRow);
 
-	#ifdef _WIN32
-	font = wxFont(wxSize(charWidth,rowHeight),wxFONTFAMILY_DEFAULT,wxFONTSTYLE_NORMAL,wxFONTWEIGHT_NORMAL,false,L"Lucida Console");
-	underlineFont = wxFont(wxSize(charWidth,rowHeight),wxFONTFAMILY_DEFAULT,wxFONTSTYLE_NORMAL,wxFONTWEIGHT_NORMAL,true,L"Lucida Console");
-	#else
-	font = wxFont(8,wxFONTFAMILY_DEFAULT,wxFONTSTYLE_NORMAL,wxFONTWEIGHT_NORMAL,false,L"Lucida Console");
+	font = pxGetFixedFont(8);
+	underlineFont = pxGetFixedFont(8, wxFONTWEIGHT_NORMAL, true);
 	font.SetPixelSize(wxSize(charWidth,rowHeight));
-	underlineFont = wxFont(8,wxFONTFAMILY_DEFAULT,wxFONTSTYLE_NORMAL,wxFONTWEIGHT_NORMAL,true,L"Lucida Console");
 	underlineFont.SetPixelSize(wxSize(charWidth,rowHeight));
-	#endif
 
 	menu.Append(ID_MEMVIEW_GOTOINDISASM,		L"Go to in Disasm");
 	menu.Append(ID_MEMVIEW_COPYADDRESS,			L"Copy address");
 	menu.Append(ID_MEMVIEW_FOLLOWADDRESS,		L"Follow address");
 	menu.AppendSeparator();
-	menu.Append(ID_MEMVIEW_DISPLAYVALUE_8,		L"Display as 1 byte");
-	menu.Append(ID_MEMVIEW_DISPLAYVALUE_16,		L"Display as 2 byte");
-	menu.Append(ID_MEMVIEW_DISPLAYVALUE_32,		L"Display as 4 byte");
-	menu.Append(ID_MEMVIEW_DISPLAYVALUE_64,		L"Display as 8 byte");
-	menu.Append(ID_MEMVIEW_DISPLAYVALUE_128,	L"Display as 16 byte");
+	menu.AppendRadioItem(ID_MEMVIEW_DISPLAYVALUE_8,		L"Display as 1 byte");
+	menu.AppendRadioItem(ID_MEMVIEW_DISPLAYVALUE_16,	L"Display as 2 byte");
+	menu.AppendRadioItem(ID_MEMVIEW_DISPLAYVALUE_32,	L"Display as 4 byte");
+	menu.AppendRadioItem(ID_MEMVIEW_DISPLAYVALUE_64,	L"Display as 8 byte");
+	menu.AppendRadioItem(ID_MEMVIEW_DISPLAYVALUE_128,	L"Display as 16 byte");
+	menu.Check(ID_MEMVIEW_DISPLAYVALUE_8, true);
 	menu.AppendSeparator();
 	menu.Append(ID_MEMVIEW_COPYVALUE_8,			L"Copy Value (8 bit)");
 	menu.Append(ID_MEMVIEW_COPYVALUE_16,		L"Copy Value (16 bit)");
@@ -103,6 +100,9 @@ CtrlMemView::CtrlMemView(wxWindow* parent, DebugInterface* _cpu)
 	menu.Append(ID_MEMVIEW_COPYVALUE_128,		L"Copy Value (128 bit)");
 	menu.Append(ID_MEMVIEW_DUMP,				L"Dump...");
 	menu.Enable(ID_MEMVIEW_DUMP,false);
+	menu.AppendSeparator();
+	menu.AppendCheckItem(ID_MEMVIEW_ALIGNWINDOW, L"Align window to row size");
+	menu.Check(ID_MEMVIEW_ALIGNWINDOW, g_Conf->EmuOptions.Debugger.AlignMemoryWindowStart);
 	menu.Bind(wxEVT_MENU, &CtrlMemView::onPopupClick, this);
 
 	SetScrollbar(wxVERTICAL,100,1,201,true);
@@ -169,6 +169,7 @@ void CtrlMemView::render(wxDC& dc)
 	const wxColor COLOR_BLACK = wxColor(0xFF000000);
 	const wxColor COLOR_SELECTED_BG = wxColor(0xFFFF9933);
 	const wxColor COLOR_SELECTED_INACTIVE_BG = wxColor(0xFFC0C0C0);
+	const wxColor COLOR_REFRENCE_BG = wxColor(0xFFFFCFC8);
 	const wxColor COLOR_ADDRESS = wxColor(0xFF600000);
 	const wxColor COLOR_DELIMETER = wxColor(0xFFC0C0C0);
 
@@ -182,7 +183,6 @@ void CtrlMemView::render(wxDC& dc)
 	const int TEMP_SIZE = 64;
 	wchar_t temp[TEMP_SIZE];
 
-	u32 byteGroupMask = ~(byteGroupSize - 1);
 	bool validCpu = cpu && cpu->isAlive();
 
 	// not hexGroupPositionFromIndex(byteGroupSize), because we dont need space after last symbol;
@@ -227,6 +227,7 @@ void CtrlMemView::render(wxDC& dc)
 
 			u32 groupAddress = byteAddress - groupIndex;
 
+			bool backgroundIsDark = false;
 			if (curAddress >= groupAddress && curAddress < groupAddress + byteGroupSize)
 			{
 				// if group selected, draw rectangle behind
@@ -243,11 +244,16 @@ void CtrlMemView::render(wxDC& dc)
 					dc.DrawRectangle(groupPosX, rowY, groupWidth, rowHeight);
 				}
 
-				dc.SetTextForeground((hasFocus && !asciiSelected) ? COLOR_WHITE : COLOR_BLACK);
+				backgroundIsDark = hasFocus && !asciiSelected;
 			}
-			else {
-				dc.SetTextForeground(COLOR_BLACK);
+			if (groupAddress + groupIndex == referencedAddress) {
+				dc.SetPen(COLOR_REFRENCE_BG);
+				dc.SetBrush(COLOR_REFRENCE_BG);
+				dc.DrawRectangle(symbolPosX, rowY, charWidth*2, rowHeight);
+				backgroundIsDark = false;
 			}
+
+			dc.SetTextForeground(backgroundIsDark ? COLOR_WHITE : COLOR_BLACK);
 
 			swprintf(temp, TEMP_SIZE, byteValid ? L"%02X" : L"??", byteCurrent);
 			// if selected byte, need hint current nibble
@@ -389,6 +395,13 @@ void CtrlMemView::onPopupClick(wxCommandEvent& evt)
 			wxTheClipboard->Close();
 		}
 		break;
+	case ID_MEMVIEW_ALIGNWINDOW:
+		g_Conf->EmuOptions.Debugger.AlignMemoryWindowStart = evt.IsChecked();
+		if (g_Conf->EmuOptions.Debugger.AlignMemoryWindowStart) {
+			windowStart -= windowStart % rowSize;
+			redraw();
+		}
+		break;
 	}
 }
 
@@ -407,16 +420,18 @@ void CtrlMemView::mouseEvent(wxMouseEvent& evt)
 
 		menu.Enable(ID_MEMVIEW_FOLLOWADDRESS, (curAddress & 3) == 0);
 
-		menu.Enable(ID_MEMVIEW_DISPLAYVALUE_8, byteGroupSize != 1);
-		menu.Enable(ID_MEMVIEW_DISPLAYVALUE_16, byteGroupSize != 2);
-		menu.Enable(ID_MEMVIEW_DISPLAYVALUE_32, byteGroupSize != 4);
-		menu.Enable(ID_MEMVIEW_DISPLAYVALUE_64, byteGroupSize != 8);
-		menu.Enable(ID_MEMVIEW_DISPLAYVALUE_128, byteGroupSize != 16);
+		menu.Check(ID_MEMVIEW_DISPLAYVALUE_8, byteGroupSize == 1);
+		menu.Check(ID_MEMVIEW_DISPLAYVALUE_16, byteGroupSize == 2);
+		menu.Check(ID_MEMVIEW_DISPLAYVALUE_32, byteGroupSize == 4);
+		menu.Check(ID_MEMVIEW_DISPLAYVALUE_64, byteGroupSize == 8);
+		menu.Check(ID_MEMVIEW_DISPLAYVALUE_128, byteGroupSize == 16);
 
 		menu.Enable(ID_MEMVIEW_COPYVALUE_128,(curAddress & 15) == 0);
 		menu.Enable(ID_MEMVIEW_COPYVALUE_64,(curAddress & 7) == 0);
 		menu.Enable(ID_MEMVIEW_COPYVALUE_32,(curAddress & 3) == 0);
 		menu.Enable(ID_MEMVIEW_COPYVALUE_16,(curAddress & 1) == 0);
+
+		menu.Check(ID_MEMVIEW_ALIGNWINDOW, g_Conf->EmuOptions.Debugger.AlignMemoryWindowStart);
 
 		PopupMenu(&menu);
 		return;
@@ -457,9 +472,9 @@ void CtrlMemView::keydownEvent(wxKeyEvent& evt)
 		case 'G':
 			{
 				u64 addr;
-				if (executeExpressionWindow(this,cpu,addr) == false)
+				if (!executeExpressionWindow(this,cpu,addr))
 					return;
-				
+
 				gotoAddress(addr, true);
 			}
 			break;
@@ -502,7 +517,7 @@ void CtrlMemView::keydownEvent(wxKeyEvent& evt)
 		scrollWindow(GetClientSize().y/rowHeight);
 		break;
 	case WXK_ESCAPE:
-		if (history.size()) {
+		if (!history.empty()) {
 			gotoAddress(history.top());
 			history.pop();
 		}
@@ -613,11 +628,11 @@ void CtrlMemView::scrollCursor(int bytes)
 
 	if (curAddress < windowStart)
 	{
-		windowStart = (curAddress / rowSize) * curAddress;
+		windowStart = (curAddress / rowSize) * rowSize;
 	} else if (curAddress >= windowEnd)
 	{
 		windowStart = curAddress - (visibleRows - 1)*rowSize;
-		windowStart = (windowStart / rowSize) * windowStart;
+		windowStart = (windowStart / rowSize) * rowSize;
 	}
 	
 	updateStatusBarText();
@@ -637,16 +652,22 @@ void CtrlMemView::updateStatusBarText()
 }
 
 void CtrlMemView::gotoAddress(u32 addr, bool pushInHistory)
-{	
+{
 	if (pushInHistory)
 		history.push(windowStart);
 
-	int lines= GetClientSize().y / rowHeight;
-	u32 windowEnd = windowStart + lines * rowSize;
-
 	curAddress = addr;
 	selectedNibble = 0;
-	windowStart = curAddress;
+
+	if (g_Conf->EmuOptions.Debugger.AlignMemoryWindowStart) {
+		int visibleRows = GetClientSize().y / rowHeight;
+		u32 windowEnd = windowStart + visibleRows*rowSize;
+
+		if (curAddress < windowStart || curAddress >= windowEnd)
+			windowStart = (curAddress / rowSize) * rowSize;
+	} else {
+		windowStart = curAddress;
+	}
 
 	updateStatusBarText();
 	redraw();
@@ -670,7 +691,6 @@ void CtrlMemView::gotoPoint(int x, int y)
 	} else if (x >= hexStart)
 	{
 		int col = (x-hexStart);
-		int space = (charWidth / 4);
 
 		int groupWidth = byteGroupSize * charWidth * 3;
 		int group = col / groupWidth;
@@ -703,4 +723,9 @@ void CtrlMemView::gotoPoint(int x, int y)
 		updateStatusBarText();
 		redraw();
 	}
+}
+
+void CtrlMemView::updateReference(u32 address) {
+	referencedAddress = address;
+	redraw();
 }

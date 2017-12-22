@@ -27,6 +27,7 @@
 #include "Utilities/pxStreams.h"
 
 #include "svnrev.h"
+#include "ConsoleLogger.h"
 
 SysPluginBindings SysPlugins;
 
@@ -155,6 +156,8 @@ static s32  CALLBACK fallback_test() { return 0; }
 
 #ifndef BUILTIN_GS_PLUGIN
 _GSvsync           GSvsync;
+_GSosdLog          GSosdLog;
+_GSosdMonitor      GSosdMonitor;
 _GSopen            GSopen;
 _GSopen2           GSopen2;
 _GSgifTransfer     GSgifTransfer;
@@ -171,7 +174,6 @@ _GSgetTitleInfo2   GSgetTitleInfo2;
 _GSmakeSnapshot	   GSmakeSnapshot;
 _GSmakeSnapshot2   GSmakeSnapshot2;
 _GSirqCallback 	   GSirqCallback;
-_GSprintf      	   GSprintf;
 _GSsetBaseMem		GSsetBaseMem;
 _GSsetGameCRC		GSsetGameCRC;
 _GSsetFrameSkip		GSsetFrameSkip;
@@ -189,17 +191,6 @@ static void CALLBACK GS_setFrameSkip(int frameskip) {}
 static void CALLBACK GS_setVsync(int enabled) {}
 static void CALLBACK GS_setExclusive(int isExcl) {}
 static void CALLBACK GS_changeSaveState( int, const char* filename ) {}
-static void CALLBACK GS_printf(int timeout, char *fmt, ...)
-{
-	va_list list;
-	char msg[512];
-
-	va_start(list, fmt);
-	vsprintf(msg, fmt, list);
-	va_end(list);
-
-	Console.WriteLn(msg);
-}
 
 void CALLBACK GS_getTitleInfo2( char* dest, size_t length )
 {
@@ -407,7 +398,6 @@ static const LegacyApi_ReqMethod s_MethMessReq_GS[] =
 
 	{	"GSmakeSnapshot",	(vMeth**)&GSmakeSnapshot,	(vMeth*)GS_makeSnapshot },
 	{	"GSirqCallback",	(vMeth**)&GSirqCallback,	(vMeth*)GS_irqCallback },
-	{	"GSprintf",			(vMeth**)&GSprintf,			(vMeth*)GS_printf },
 	{	"GSsetBaseMem",		(vMeth**)&GSsetBaseMem,		NULL	},
 	{	"GSwriteCSR",		(vMeth**)&GSwriteCSR,		NULL	},
 	{	"GSsetGameCRC",		(vMeth**)&GSsetGameCRC,		(vMeth*)GS_setGameCRC },
@@ -422,6 +412,8 @@ static const LegacyApi_ReqMethod s_MethMessReq_GS[] =
 
 static const LegacyApi_OptMethod s_MethMessOpt_GS[] =
 {
+	{	"GSosdLog",			(vMeth**)&GSosdLog			},
+	{	"GSosdMonitor",		(vMeth**)&GSosdMonitor		},
 	{	"GSopen2",			(vMeth**)&GSopen2			},
 	{	"GSreset",			(vMeth**)&GSreset			},
 	{	"GSsetupRecording",	(vMeth**)&GSsetupRecording	},
@@ -727,6 +719,7 @@ wxString Exception::SaveStateLoadError::FormatDiagnosticMessage() const
 {
 	FastFormatUnicode retval;
 	retval.Write("Savestate is corrupt or incomplete!\n");
+	OSDlog(Color_Red, false, "Error: Savestate is corrupt or incomplete!");
 	_formatDiagMsg(retval);
 	return retval;
 }
@@ -736,6 +729,7 @@ wxString Exception::SaveStateLoadError::FormatDisplayMessage() const
 	FastFormatUnicode retval;
 	retval.Write(_("The savestate cannot be loaded, as it appears to be corrupt or incomplete."));
 	retval.Write("\n");
+	OSDlog(Color_Red, false, "Error: The savestate cannot be loaded, as it appears to be corrupt or incomplete.");
 	_formatUserMsg(retval);
 	return retval;
 }
@@ -838,7 +832,7 @@ static char* PS2E_CALLBACK pcsx2_GetStringAlloc( const char* name, void* (PS2E_C
 
 static void PS2E_CALLBACK pcsx2_OSD_WriteLn( int icon, const char* msg )
 {
-	return;		// not implemented...
+	OSDlog( Color_StrongYellow, false, msg );
 }
 
 // ---------------------------------------------------------------------------------
@@ -1104,7 +1098,7 @@ void SysCorePlugins::PluginStatus_t::BindOptional( PluginsEnum_t pid )
 //  SysCorePlugins Implementations
 // =====================================================================================
 
-SysCorePlugins::~SysCorePlugins() throw()
+SysCorePlugins::~SysCorePlugins()
 {
 	try
 	{
@@ -1119,8 +1113,11 @@ void SysCorePlugins::Load( PluginsEnum_t pid, const wxString& srcfile )
 {
 	ScopedLock lock( m_mtx_PluginStatus );
 	pxAssert( (uint)pid < PluginId_Count );
-	Console.Indent().WriteLn( L"Binding %4s: %s ", WX_STR(tbl_PluginInfo[pid].GetShortname()), WX_STR(srcfile) );
-	m_info[pid] = std::unique_ptr<PluginStatus_t>(new PluginStatus_t(pid, srcfile));
+
+	m_info[pid] = std::make_unique<PluginStatus_t>(pid, srcfile);
+
+	Console.Indent().WriteLn(L"Bound %4s: %s [%s %s]", WX_STR(tbl_PluginInfo[pid].GetShortname()), 
+		WX_STR(wxFileName(srcfile).GetFullName()), WX_STR(m_info[pid]->Name), WX_STR(m_info[pid]->Version));
 }
 
 void SysCorePlugins::Load( const wxString (&folders)[PluginId_Count] )
@@ -1128,8 +1125,8 @@ void SysCorePlugins::Load( const wxString (&folders)[PluginId_Count] )
 	if( !NeedsLoad() ) return;
 
 	wxDoNotLogInThisScope please;
-	
-	Console.WriteLn( Color_StrongBlue, "\nLoading plugins..." );
+
+	Console.WriteLn(Color_StrongBlue, L"\nLoading plugins from %s...", WX_STR(g_Conf->Folders[FolderId_Plugins].ToString()));
 
 	ConsoleIndentScope indent;
 	const PluginInfo* pi = tbl_PluginInfo; do
@@ -1503,7 +1500,7 @@ bool SysCorePlugins::Init()
 {
 	if( !NeedsInit() ) return false;
 
-	Console.WriteLn( Color_StrongBlue, "\nInitializing plugins..." );
+	Console.WriteLn( Color_StrongBlue, "Initializing plugins..." );
 	const PluginInfo* pi = tbl_PluginInfo; do {
 		Init( pi->id );
 	} while( ++pi, pi->shortname != NULL );

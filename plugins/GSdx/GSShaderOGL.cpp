@@ -23,12 +23,18 @@
 #include "GSShaderOGL.h"
 #include "GLState.h"
 
-#include "res/glsl_source.h"
+#ifdef _WIN32
+#include "resource.h"
+#else
+#include "GSdxResources.h"
+#endif
 
 GSShaderOGL::GSShaderOGL(bool debug) :
 	m_pipeline(0),
 	m_debug_shader(debug)
 {
+	theApp.LoadResource(IDR_COMMON_GLSL, m_common_header);
+
 	// Create a default pipeline
 	m_pipeline = LinkPipeline("HW pipe", 0, 0, 0);
 	BindPipeline(m_pipeline);
@@ -44,7 +50,7 @@ GSShaderOGL::~GSShaderOGL()
 	glDeleteProgramPipelines(m_pipe_to_delete.size(), &m_pipe_to_delete[0]);
 }
 
-GLuint GSShaderOGL::LinkPipeline(const string& pretty_print, GLuint vs, GLuint gs, GLuint ps)
+GLuint GSShaderOGL::LinkPipeline(const std::string& pretty_print, GLuint vs, GLuint gs, GLuint ps)
 {
 	GLuint p;
 	glCreateProgramPipelines(1, &p);
@@ -218,6 +224,8 @@ std::string GSShaderOGL::GenGlslHeader(const std::string& entry, GLenum type, co
 	} else {
 		header += "#define DISABLE_GL42_image\n";
 	}
+	if (GLLoader::vendor_id_amd || GLLoader::vendor_id_intel)
+		header += "#define BROKEN_DRIVER as_usual\n";
 
 	// Stupid GL implementation (can't use GL_ES)
 	// AMD/nvidia define it to 0
@@ -261,7 +269,7 @@ GLuint GSShaderOGL::Compile(const std::string& glsl_file, const std::string& ent
 	std::string header = GenGlslHeader(entry, type, macro_sel);
 
 	sources[0] = header.c_str();
-	sources[1] = common_header_glsl;
+	sources[1] = m_common_header.data();
 	sources[2] = glsl_h_code;
 
 	program = glCreateShaderProgramv(type, shader_nb, sources);
@@ -295,7 +303,7 @@ GLuint GSShaderOGL::CompileShader(const std::string& glsl_file, const std::strin
 	std::string header = GenGlslHeader(entry, type, macro_sel);
 
 	sources[0] = header.c_str();
-	sources[1] = common_header_glsl;
+	sources[1] = m_common_header.data();
 	sources[2] = glsl_h_code;
 
 	shader =  glCreateShader(type);
@@ -323,7 +331,7 @@ GLuint GSShaderOGL::CompileShader(const std::string& glsl_file, const std::strin
 // GLSL improvement (unfortunately).
 int GSShaderOGL::DumpAsm(const std::string& file, GLuint p)
 {
-	if (!GLLoader::nvidia_buggy_driver) return 0;
+	if (!GLLoader::vendor_id_nvidia) return 0;
 
 	GLint   binaryLength;
 	glGetProgramiv(p, GL_PROGRAM_BINARY_LENGTH, &binaryLength);

@@ -26,6 +26,9 @@
 
 #ifdef FRAGMENT_SHADER
 
+#if !defined(BROKEN_DRIVER) && defined(GL_ARB_enhanced_layouts) && GL_ARB_enhanced_layouts
+layout(location = 0)
+#endif
 in SHADER
 {
     vec4 t_float;
@@ -75,7 +78,30 @@ layout(early_fragment_tests) in;
 
 vec4 sample_c(vec2 uv)
 {
+#if PS_TEX_IS_FB == 1
+    return texelFetch(RtSampler, ivec2(gl_FragCoord.xy), 0);
+#else
+
+#if PS_AUTOMATIC_LOD == 1
     return texture(TextureSampler, uv);
+#elif PS_MANUAL_LOD == 1
+    // FIXME add LOD: K - ( LOG2(Q) * (1 << L))
+    float K = MinMax.x;
+    float L = MinMax.y;
+    float bias = MinMax.z;
+    float max_lod = MinMax.w;
+
+    float gs_lod = K - log2(abs(PSin.t_float.w)) * L;
+    // FIXME max useful ?
+    //float lod = max(min(gs_lod, max_lod) - bias, 0.0f);
+    float lod = min(gs_lod, max_lod) - bias;
+
+    return textureLod(TextureSampler, uv, lod);
+#else
+    return textureLod(TextureSampler, uv, 0); // No lod
+#endif
+
+#endif
 }
 
 vec4 sample_p(float idx)
@@ -531,9 +557,11 @@ vec4 ps_color()
     //FIXME: maybe we can set gl_Position.w = q in VS
 #if (PS_FST == 0)
     vec2 st = PSin.t_float.xy / vec2(PSin.t_float.w);
+    vec2 st_int = PSin.t_int.zw / vec2(PSin.t_float.w);
 #else
     // Note xy are normalized coordinate
     vec2 st = PSin.t_int.xy;
+    vec2 st_int = PSin.t_int.zw;
 #endif
 
 #if PS_CHANNEL_FETCH == 1
@@ -550,7 +578,7 @@ vec4 ps_color()
     vec4 T = fetch_rgb();
 #elif PS_DEPTH_FMT > 0
     // Integral coordinate
-    vec4 T = sample_depth(PSin.t_int.zw);
+    vec4 T = sample_depth(st_int);
 #else
     vec4 T = sample_color(st);
 #endif

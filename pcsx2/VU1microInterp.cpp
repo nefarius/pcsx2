@@ -155,7 +155,7 @@ static void _vu1Exec(VURegs* VU)
 		if (VU->branch-- == 1) {
 			VU->VI[REG_TPC].UL = VU->branchpc;
 
-			if(VU->takedelaybranch == true)
+			if(VU->takedelaybranch)
 			{				
 				VU->branch = 2;
 				//DevCon.Warning("VU1 - Branch/Jump in Delay Slot");			
@@ -198,7 +198,7 @@ void InterpVU1::Reset() {
 	vu1Thread.WaitVU();
 }
 
-void InterpVU1::Shutdown() throw() {
+void InterpVU1::Shutdown() noexcept {
 	vu1Thread.WaitVU();
 }
 

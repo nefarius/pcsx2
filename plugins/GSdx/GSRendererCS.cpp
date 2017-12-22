@@ -295,9 +295,9 @@ bool GSRendererCS::CreateDevice(GSDevice* dev_unk)
 
 	try
 	{
-		vector<unsigned char> shader;
+		std::vector<char> shader;
 		theApp.LoadResource(IDR_CS_FX, shader);
-		dev->CompileShader((const char *)shader.data(), shader.size(), "cs.fx", nullptr, "ps_main0", macro, &m_ps0);
+		dev->CompileShader(shader.data(), shader.size(), "cs.fx", nullptr, "ps_main0", macro, &m_ps0);
 	}
 	catch (GSDXRecoverableError)
 	{
@@ -345,7 +345,7 @@ GSTexture* GSRendererCS::GetOutput(int i, int& y_offset)
 	const GSRegDISPFB& DISPFB = m_regs->DISP[i].DISPFB;
 
 	int w = DISPFB.FBW * 64;
-	int h = GetFrameRect(i).bottom;
+	int h = GetFramebufferHeight();
 
 	// TODO: round up bottom
 
@@ -501,7 +501,7 @@ void GSRendererCS::Draw()
 	{
 		GSVertexShader11 vs;
 
-		hash_map<uint32, GSVertexShader11>::const_iterator i = m_vs.find(vs_sel);
+		auto i = std::as_const(m_vs).find(vs_sel);
 
 		if(i != m_vs.end())
 		{
@@ -509,7 +509,7 @@ void GSRendererCS::Draw()
 		}
 		else
 		{
-			string str[2];
+			std::string str[2];
 
 			str[0] = format("%d", vs_sel.tme);
 			str[1] = format("%d", vs_sel.fst);
@@ -532,9 +532,9 @@ void GSRendererCS::Draw()
 				{"COLOR", 1, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 28, D3D11_INPUT_PER_VERTEX_DATA, 0},
 			};
 
-			vector<unsigned char> shader;
+			std::vector<char> shader;
 			theApp.LoadResource(IDR_CS_FX, shader);
-			dev->CompileShader((const char *)shader.data(), shader.size(), "cs.fx", nullptr, "vs_main", macro, &vs.vs, layout, countof(layout), &vs.il);
+			dev->CompileShader(shader.data(), shader.size(), "cs.fx", nullptr, "vs_main", macro, &vs.vs, layout, countof(layout), &vs.il);
 
 			m_vs[vs_sel] = vs;
 		}
@@ -558,7 +558,7 @@ void GSRendererCS::Draw()
 	{
 		gs_sel.prim = j == 0 ? m_vt.m_primclass : GS_SPRITE_CLASS;
 
-		hash_map<uint32, CComPtr<ID3D11GeometryShader> >::const_iterator i = m_gs.find(gs_sel);
+		auto i = std::as_const(m_gs).find(gs_sel);
 
 		if(i != m_gs.end())
 		{
@@ -566,7 +566,7 @@ void GSRendererCS::Draw()
 		}
 		else
 		{
-			string str[2];
+			std::string str[2];
 
 			str[0] = format("%d", gs_sel.iip);
 			str[1] = format("%d", j == 0 ? gs_sel.prim : GS_SPRITE_CLASS);
@@ -578,9 +578,9 @@ void GSRendererCS::Draw()
 				{NULL, NULL},
 			};
 
-			vector<unsigned char> shader;
+			std::vector<char> shader;
 			theApp.LoadResource(IDR_CS_FX, shader);
-			dev->CompileShader((const char *)shader.data(), shader.size(), "cs.fx", nullptr, "gs_main", macro, &gs[j]);
+			dev->CompileShader(shader.data(), shader.size(), "cs.fx", nullptr, "gs_main", macro, &gs[j]);
 
 			m_gs[gs_sel] = gs[j];
 		}
@@ -597,7 +597,7 @@ void GSRendererCS::Draw()
 
 	CComPtr<ID3D11PixelShader> ps[2] = {m_ps0, NULL};
 
-	hash_map<uint32, CComPtr<ID3D11PixelShader> >::const_iterator i = m_ps1.find(ps_sel);
+	auto i = std::as_const(m_ps1).find(ps_sel);
 
 	if(i != m_ps1.end())
 	{
@@ -605,7 +605,7 @@ void GSRendererCS::Draw()
 	}
 	else
 	{
-		string str[15];
+		std::string str[15];
 
 		str[0] = format("%d", PS_BATCH_SIZE);
 		str[1] = format("%d", context->FRAME.PSM);
@@ -619,9 +619,9 @@ void GSRendererCS::Draw()
 			{NULL, NULL},
 		};
 
-		vector<unsigned char> shader;
+		std::vector<char> shader;
 		theApp.LoadResource(IDR_CS_FX, shader);
-		dev->CompileShader((const char *)shader.data(), shader.size(), "cs.fx", nullptr, "ps_main1", macro, &ps[1]);
+		dev->CompileShader(shader.data(), shader.size(), "cs.fx", nullptr, "ps_main1", macro, &ps[1]);
 
 		m_ps1[ps_sel] = ps[1];
 	}
@@ -825,7 +825,7 @@ bool GSRendererCS::GetOffsetBuffer(OffsetBuffer** fzbo)
 	D3D11_SHADER_RESOURCE_VIEW_DESC srvd;
 	D3D11_SUBRESOURCE_DATA data;
 
-	hash_map<uint32, OffsetBuffer>::iterator i = m_offset.find(m_context->offset.fzb->hash);
+	auto i = m_offset.find(m_context->offset.fzb->hash);
 
 	if(i == m_offset.end())
 	{

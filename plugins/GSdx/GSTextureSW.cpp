@@ -38,7 +38,7 @@ GSTextureSW::~GSTextureSW()
 	_aligned_free(m_data);
 }
 
-bool GSTextureSW::Update(const GSVector4i& r, const void* data, int pitch)
+bool GSTextureSW::Update(const GSVector4i& r, const void* data, int pitch, int layer)
 {
 	GSMap m;
 
@@ -62,7 +62,7 @@ bool GSTextureSW::Update(const GSVector4i& r, const void* data, int pitch)
 	return false;
 }
 
-bool GSTextureSW::Map(GSMap& m, const GSVector4i* r)
+bool GSTextureSW::Map(GSMap& m, const GSVector4i* r, int layer)
 {
 	GSVector4i r2 = r != NULL ? *r : GSVector4i(0, 0, m_size.x, m_size.y);
 
@@ -85,7 +85,7 @@ void GSTextureSW::Unmap()
 	m_mapped.clear(std::memory_order_release);
 }
 
-bool GSTextureSW::Save(const string& fn, bool user_image, bool dds)
+bool GSTextureSW::Save(const std::string& fn, bool dds)
 {
 	if(dds) return false; // not implemented
 
@@ -94,6 +94,6 @@ bool GSTextureSW::Save(const string& fn, bool user_image, bool dds)
 #else
 	GSPng::Format fmt = GSPng::RGB_PNG;
 #endif
-	int compression = user_image ? Z_BEST_COMPRESSION : theApp.GetConfigI("png_compression_level");
+	int compression = theApp.GetConfigI("png_compression_level");
 	return GSPng::Save(fmt, fn, static_cast<uint8*>(m_data), m_size.x, m_size.y, m_pitch, compression);
 }

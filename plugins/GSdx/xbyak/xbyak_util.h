@@ -1,9 +1,9 @@
 /* Copyright (c) 2007 MITSUNARI Shigeo
 * All rights reserved.
-* 
+*
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions are met:
-* 
+*
 * Redistributions of source code must retain the above copyright notice, this
 * list of conditions and the following disclaimer.
 * Redistributions in binary form must reproduce the above copyright notice,
@@ -12,7 +12,7 @@
 * Neither the name of the copyright owner nor the names of its contributors may
 * be used to endorse or promote products derived from this software without
 * specific prior written permission.
-* 
+*
 * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -82,11 +82,28 @@ extern "C" unsigned __int64 __xgetbv(int);
 
 namespace Xbyak { namespace util {
 
+/* GCC uses AVX/SSE4 operation to handle the uint64 type.
+ *
+ * It is quite annoying because the purpose of the code is to test the support
+ * of AVX/SSEn
+ *
+ * So far, we don't need other ISA on i386 so I hacked the code to limit the
+ * type to 32 bits. If we want to support AVX512 we might need to shuffle the
+ * code a bit.
+ *
+ * Extra note: it would be waste to use AVX512 on 32 bits, registers are
+ * limited to 8 instead of 32.
+ */
+
 /**
 	CPU detection class
 */
 class Cpu {
+#ifdef XBYAK64
 	uint64 type_;
+#else
+	uint32 type_;
+#endif
 	unsigned int get32bitAsBE(const char *x) const
 	{
 		return x[0] | (x[1] << 8) | (x[2] << 16) | (x[3] << 24);
@@ -124,6 +141,9 @@ public:
 	int extFamily;
 	int displayFamily; // family + extFamily
 	int displayModel; // model + extModel
+	/*
+		data[] = { eax, ebx, ecx, edx }
+	*/
 	static inline void getCpuid(unsigned int eaxIn, unsigned int data[4])
 	{
 #ifdef _MSC_VER
@@ -152,7 +172,11 @@ public:
 		return ((uint64)edx << 32) | eax;
 #endif
 	}
+#ifdef XBYAK64
 	typedef uint64 Type;
+#else
+	typedef uint32 Type;
+#endif
 	static const Type NONE = 0;
 	static const Type tMMX = 1 << 0;
 	static const Type tMMX2 = 1 << 1;
@@ -188,10 +212,21 @@ public:
 	static const Type tADX = 1 << 28; // adcx, adox
 	static const Type tRDSEED = 1 << 29; // rdseed
 	static const Type tSMAP = 1 << 30; // stac
+#ifdef XBYAK64
 	static const Type tHLE = uint64(1) << 31; // xacquire, xrelease, xtest
 	static const Type tRTM = uint64(1) << 32; // xbegin, xend, xabort
 	static const Type tF16C = uint64(1) << 33; // vcvtph2ps, vcvtps2ph
 	static const Type tMOVBE = uint64(1) << 34; // mobve
+	static const Type tAVX512F = uint64(1) << 35;
+	static const Type tAVX512DQ = uint64(1) << 36;
+	static const Type tAVX512IFMA = uint64(1) << 37;
+	static const Type tAVX512PF = uint64(1) << 38;
+	static const Type tAVX512ER = uint64(1) << 39;
+	static const Type tAVX512CD = uint64(1) << 40;
+	static const Type tAVX512BW = uint64(1) << 41;
+	static const Type tAVX512VL = uint64(1) << 42;
+	static const Type tAVX512VBMI = uint64(1) << 43;
+#endif
 
 	Cpu()
 		: type_(NONE)
@@ -221,13 +256,15 @@ public:
 		if (data[2] & (1U << 9)) type_ |= tSSSE3;
 		if (data[2] & (1U << 19)) type_ |= tSSE41;
 		if (data[2] & (1U << 20)) type_ |= tSSE42;
+#ifdef XBYAK64
 		if (data[2] & (1U << 22)) type_ |= tMOVBE;
+		if (data[2] & (1U << 29)) type_ |= tF16C;
+#endif
 		if (data[2] & (1U << 23)) type_ |= tPOPCNT;
 		if (data[2] & (1U << 25)) type_ |= tAESNI;
 		if (data[2] & (1U << 1)) type_ |= tPCLMULQDQ;
 		if (data[2] & (1U << 27)) type_ |= tOSXSAVE;
 		if (data[2] & (1U << 30)) type_ |= tRDRAND;
-		if (data[2] & (1U << 29)) type_ |= tF16C;
 
 		if (data[3] & (1U << 15)) type_ |= tCMOV;
 		if (data[3] & (1U << 23)) type_ |= tMMX;
@@ -240,6 +277,23 @@ public:
 			if ((bv & 6) == 6) {
 				if (data[2] & (1U << 28)) type_ |= tAVX;
 				if (data[2] & (1U << 12)) type_ |= tFMA;
+#ifdef XBYAK64
+				if (((bv >> 5) & 7) == 7) {
+					getCpuid(7, data);
+					if (data[1] & (1U << 16)) type_ |= tAVX512F;
+					if (type_ & tAVX512F) {
+						getCpuidEx(7, 0, data);
+						if (data[1] & (1U << 17)) type_ |= tAVX512DQ;
+						if (data[1] & (1U << 21)) type_ |= tAVX512IFMA;
+						if (data[1] & (1U << 26)) type_ |= tAVX512PF;
+						if (data[1] & (1U << 27)) type_ |= tAVX512ER;
+						if (data[1] & (1U << 28)) type_ |= tAVX512CD;
+						if (data[1] & (1U << 30)) type_ |= tAVX512BW;
+						if (data[1] & (1U << 31)) type_ |= tAVX512VL;
+						if (data[2] & (1U << 1)) type_ |= tAVX512VBMI;
+					}
+				}
+#endif
 			}
 		}
 		if (maxNum >= 7) {
@@ -251,8 +305,10 @@ public:
 			if (data[1] & (1U << 18)) type_ |= tRDSEED;
 			if (data[1] & (1U << 19)) type_ |= tADX;
 			if (data[1] & (1U << 20)) type_ |= tSMAP;
+#ifdef XBYAK64
 			if (data[1] & (1U << 4)) type_ |= tHLE;
 			if (data[1] & (1U << 11)) type_ |= tRTM;
+#endif
 		}
 		setFamily();
 	}
@@ -311,7 +367,7 @@ class Pack {
 	const Xbyak::Reg64 *tbl_[maxTblNum];
 	size_t n_;
 public:
-	Pack() : n_(0) {}
+	Pack() : tbl_(), n_(0) {}
 	Pack(const Xbyak::Reg64 *tbl, size_t n) { init(tbl, n); }
 	Pack(const Pack& rhs)
 		: n_(rhs.n_)

@@ -52,8 +52,6 @@ wxDEFINE_EVENT(pxEVT_ShowStatusBar, wxCommandEvent);
 typedef s32		(CALLBACK* TestFnptr)();
 typedef void	(CALLBACK* ConfigureFnptr)();
 
-static const wxString failed_separator( L"--------   Unsupported Plugins  --------" );
-
 namespace Exception
 {
 	class NotEnumerablePlugin : public BadStream
@@ -161,7 +159,7 @@ protected:
 
 public:
 	ApplyPluginsDialog( BaseApplicableConfigPanel* panel=NULL );
-	virtual ~ApplyPluginsDialog() throw() {}
+	virtual ~ApplyPluginsDialog() = default;
 
 	BaseApplicableConfigPanel* GetApplicableConfigPanel() const { return m_panel; }
 };
@@ -184,7 +182,7 @@ public:
 		m_owner = owner;
 	}
 
-	virtual ~ApplyOverValidStateEvent() throw() { }
+	virtual ~ApplyOverValidStateEvent() = default;
 	virtual ApplyOverValidStateEvent *Clone() const { return new ApplyOverValidStateEvent(*this); }
 
 protected:
@@ -205,7 +203,7 @@ protected:
 public:
 	wxString GetEventName() const { return L"PluginSelectorPanel::ApplyPlugins"; }
 
-	virtual ~SysExecEvent_ApplyPlugins() throw() {}
+	virtual ~SysExecEvent_ApplyPlugins() = default;
 	SysExecEvent_ApplyPlugins* Clone() const { return new SysExecEvent_ApplyPlugins( *this ); }
 
 	SysExecEvent_ApplyPlugins( ApplyPluginsDialog* parent, SynchronousActionState& sync )
@@ -439,7 +437,7 @@ Panels::PluginSelectorPanel::PluginSelectorPanel( wxWindow* parent )
 	Bind(wxEVT_BUTTON, &PluginSelectorPanel::OnConfigure_Clicked, this, ButtonId_Configure);
 }
 
-Panels::PluginSelectorPanel::~PluginSelectorPanel() throw()
+Panels::PluginSelectorPanel::~PluginSelectorPanel()
 {
 	CancelRefresh();		// in case the enumeration thread is currently refreshing...
 }
@@ -751,11 +749,10 @@ void Panels::PluginSelectorPanel::OnProgress( wxCommandEvent& evt )
 
 Panels::PluginSelectorPanel::EnumThread::EnumThread( PluginSelectorPanel& master )
 	: pxThread()
-	, Results( master.FileCount(), L"PluginSelectorResults" )
+	, Results( master.FileCount() )
 	, m_master( master )
 	, m_hourglass( Cursor_KindaBusy )
 {
-	Results.MatchLengthToAllocatedSize();
 }
 
 void Panels::PluginSelectorPanel::EnumThread::DoNextPlugin( int curidx )

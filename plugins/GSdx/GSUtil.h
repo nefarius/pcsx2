@@ -22,20 +22,23 @@
 #pragma once
 
 #include "GS.h"
+#include "xbyak/xbyak_util.h"
 
 struct OCLDeviceDesc
 {
 #ifdef ENABLE_OPENCL
 	cl::Device device;
 #endif
-	string name;
+	std::string name;
 	int version;
-	string tmppath;
+	std::string tmppath;
 };
 
 class GSUtil
 {
 public:
+	static void Init();
+
 	static const char* GetLibName();
 
 	static GS_PRIM_CLASS GetPrimClass(uint32 prim);
@@ -49,10 +52,11 @@ public:
 	static bool HasCompatibleBits(uint32 spsm, uint32 dpsm);
 
 	static bool CheckSSE();
+	static CRCHackLevel GetRecommendedCRCHackLevel(GSRendererType type);
 
 #ifdef ENABLE_OPENCL
-	static void GetDeviceDescs(list<OCLDeviceDesc>& dl);
-	static string GetDeviceUniqueName(cl::Device& device);
+	static void GetDeviceDescs(std::list<OCLDeviceDesc>& dl);
+	static std::string GetDeviceUniqueName(cl::Device& device);
 #endif
 
 #ifdef _WIN32
@@ -66,8 +70,9 @@ public:
 #endif
 };
 
-#if defined(__unix__)
 void GSmkdir(const char* dir);
-#endif
+std::string GStempdir();
 
 const char* psm_str(int psm);
+
+extern Xbyak::util::Cpu g_cpu;

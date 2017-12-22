@@ -103,7 +103,7 @@ protected:
 
 public:
 	SysMainMemory();
-	virtual ~SysMainMemory() throw();
+	virtual ~SysMainMemory();
 
 	virtual void ReserveAll();
 	virtual void CommitAll();
@@ -119,10 +119,10 @@ class SysAllocVM
 {
 public:
 	SysAllocVM();
-	virtual ~SysAllocVM() throw();
+	virtual ~SysAllocVM();
 
 protected:
-	void CleanupMess() throw();
+	void CleanupMess() noexcept;
 };
 
 // --------------------------------------------------------------------------------------
@@ -138,7 +138,7 @@ public:
 	std::unique_ptr<CpuInitializerSet> CpuProviders;
 
 	SysCpuProviderPack();
-	virtual ~SysCpuProviderPack() throw();
+	virtual ~SysCpuProviderPack();
 
 	void ApplyConfig() const;
 #ifndef DISABLE_SVU
@@ -164,7 +164,7 @@ public:
 	BaseException* GetException_SuperVU1() const;
 
 protected:
-	void CleanupMess() throw();
+	void CleanupMess() noexcept;
 };
 
 // GetCpuProviders - this function is not implemented by PCSX2 core -- it must be

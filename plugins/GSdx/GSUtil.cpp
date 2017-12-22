@@ -20,9 +20,7 @@
  */
 
 #include "stdafx.h"
-#include "GS.h"
 #include "GSUtil.h"
-#include "xbyak/xbyak_util.h"
 
 #ifdef _WIN32
 #include "GSDeviceDX.h"
@@ -33,11 +31,19 @@
 #define SVN_MODS 0
 #endif
 
+Xbyak::util::Cpu g_cpu;
+
 const char* GSUtil::GetLibName()
 {
 	// The following ifdef mess is courtesy of "static string str;"
 	// being optimised by GCC to be unusable by older CPUs. Enjoy!
 	static char name[255];
+
+#if _M_SSE < 0x501
+	const char* sw_sse = g_cpu.has(Xbyak::util::Cpu::tAVX) ? "AVX" :
+		g_cpu.has(Xbyak::util::Cpu::tSSE41) ? "SSE41" :
+		g_cpu.has(Xbyak::util::Cpu::tSSSE3) ? "SSSE3" : "SSE2";
+#endif
 
 	snprintf(name, sizeof(name), "GSdx "
 
@@ -48,15 +54,15 @@ const char* GSUtil::GetLibName()
 		"64-bit "
 #endif
 #ifdef __INTEL_COMPILER
-		"(Intel C++ %d.%02d %s)",
+		"(Intel C++ %d.%02d %s/%s)",
 #elif _MSC_VER
-		"(MSVC %d.%02d %s)",
+		"(MSVC %d.%02d %s/%s)",
 #elif __clang__
-		"(clang %d.%d.%d %s)",
+		"(clang %d.%d.%d %s/%s)",
 #elif __GNUC__
-		"(GCC %d.%d.%d %s)",
+		"(GCC %d.%d.%d %s/%s)",
 #else
-		"(%s)",
+		"(%s/%s)",
 #endif
 #ifdef _WIN32
 		SVN_REV,
@@ -72,19 +78,15 @@ const char* GSUtil::GetLibName()
 #endif
 
 #if _M_SSE >= 0x501
-		"AVX2"
+		"AVX2", "AVX2"
 #elif _M_SSE >= 0x500
-		"AVX"
-#elif _M_SSE >= 0x402
-		"SSE4.2"
+		"AVX", sw_sse
 #elif _M_SSE >= 0x401
-		"SSE4.1"
+		"SSE4.1", sw_sse
 #elif _M_SSE >= 0x301
-		"SSSE3"
+		"SSSE3", sw_sse
 #elif _M_SSE >= 0x200
-		"SSE2"
-#elif _M_SSE >= 0x100
-		"SSE"
+		"SSE2", sw_sse
 #endif
 	);
 
@@ -100,7 +102,8 @@ public:
 	uint32 CompatibleBitsField[64][2];
 	uint32 SharedBitsField[64][2];
 
-	GSUtilMaps()
+	// Defer init to avoid AVX2 illegal instructions
+	void Init()
 	{
 		PrimClassField[GS_POINTLIST] = GS_POINT_CLASS;
 		PrimClassField[GS_LINELIST] = GS_LINE_CLASS;
@@ -161,6 +164,11 @@ public:
 
 } s_maps;
 
+void GSUtil::Init()
+{
+	s_maps.Init();
+}
+
 GS_PRIM_CLASS GSUtil::GetPrimClass(uint32 prim)
 {
 	return (GS_PRIM_CLASS)s_maps.PrimClassField[prim];
@@ -203,44 +211,51 @@ bool GSUtil::HasCompatibleBits(uint32 spsm, uint32 dpsm)
 
 bool GSUtil::CheckSSE()
 {
-	Xbyak::util::Cpu cpu;
-	Xbyak::util::Cpu::Type type;
-	const char* instruction_set = "";
+	bool status = true;
 
-	#if _M_SSE >= 0x501
-	type = Xbyak::util::Cpu::tAVX2;
-	instruction_set = "AVX2";
-	#elif _M_SSE >= 0x500
-	type = Xbyak::util::Cpu::tAVX;
-	instruction_set = "AVX";
-	#elif _M_SSE >= 0x402
-	type = Xbyak::util::Cpu::tSSE42;
-	instruction_set = "SSE4.2";
-	#elif _M_SSE >= 0x401
-	type = Xbyak::util::Cpu::tSSE41;
-	instruction_set = "SSE4.1";
-	#elif _M_SSE >= 0x301
-	type = Xbyak::util::Cpu::tSSSE3;
-	instruction_set = "SSSE3";
-	#elif _M_SSE >= 0x200
-	type = Xbyak::util::Cpu::tSSE2;
-	instruction_set = "SSE2";
-	#endif
+	struct ISA {
+		Xbyak::util::Cpu::Type type;
+		const char* name;
+	};
 
-	if(!cpu.has(type))
-	{
-		fprintf(stderr, "This CPU does not support %s\n", instruction_set);
+	ISA checks[] = {
+		{Xbyak::util::Cpu::tSSE2, "SSE2"},
+#if _M_SSE >= 0x301
+		{Xbyak::util::Cpu::tSSSE3, "SSSE3"},
+#endif
+#if _M_SSE >= 0x401
+		{Xbyak::util::Cpu::tSSE41, "SSE41"},
+#endif
+#if _M_SSE >= 0x500
+		{Xbyak::util::Cpu::tAVX, "AVX1"},
+#endif
+#if _M_SSE >= 0x501
+		{Xbyak::util::Cpu::tAVX2, "AVX2"},
+		{Xbyak::util::Cpu::tBMI1, "BMI1"},
+		{Xbyak::util::Cpu::tBMI2, "BMI2"},
+#endif
+	};
 
-		return false;
+	for (size_t i = 0; i < countof(checks); i++) {
+		if(!g_cpu.has(checks[i].type)) {
+			fprintf(stderr, "This CPU does not support %s\n", checks[i].name);
+
+			status = false;
+		}
 	}
 
-	return true;
+	return status;
+}
+
+CRCHackLevel GSUtil::GetRecommendedCRCHackLevel(GSRendererType type)
+{
+	return type == GSRendererType::OGL_HW ? CRCHackLevel::Partial : CRCHackLevel::Full;
 }
 
 #define OCL_PROGRAM_VERSION 3
 
 #ifdef ENABLE_OPENCL
-void GSUtil::GetDeviceDescs(list<OCLDeviceDesc>& dl)
+void GSUtil::GetDeviceDescs(std::list<OCLDeviceDesc>& dl)
 {
 	dl.clear();
 
@@ -260,7 +275,7 @@ void GSUtil::GetDeviceDescs(list<OCLDeviceDesc>& dl)
 
 			for(auto& device : ds)
 			{
-				string type;
+				std::string type;
 
 				switch(device.getInfo<CL_DEVICE_TYPE>())
 				{
@@ -283,24 +298,13 @@ void GSUtil::GetDeviceDescs(list<OCLDeviceDesc>& dl)
 					desc.name = GetDeviceUniqueName(device);
 					desc.version = major * 100 + minor * 10;
 
-					// TODO: linux
+					desc.tmppath = GStempdir() + "/" + desc.name;
 
-					char* buff = new char[MAX_PATH + 1];
-					GetTempPath(MAX_PATH, buff);
-					desc.tmppath = string(buff) + "/" + desc.name;
+					GSmkdir(desc.tmppath.c_str());
 
-					WIN32_FIND_DATA FindFileData;
-					HANDLE hFind = FindFirstFile(desc.tmppath.c_str(), &FindFileData);
-					if(hFind != INVALID_HANDLE_VALUE) FindClose(hFind);
-					else CreateDirectory(desc.tmppath.c_str(), NULL);
+					desc.tmppath += "/" + std::to_string(OCL_PROGRAM_VERSION);
 
-					sprintf(buff, "/%d", OCL_PROGRAM_VERSION);
-					desc.tmppath += buff;
-					delete[] buff;
-
-					hFind = FindFirstFile(desc.tmppath.c_str(), &FindFileData);
-					if(hFind != INVALID_HANDLE_VALUE) FindClose(hFind);
-					else CreateDirectory(desc.tmppath.c_str(), NULL);
+					GSmkdir(desc.tmppath.c_str());
 
 					dl.push_back(desc);
 				}
@@ -313,13 +317,13 @@ void GSUtil::GetDeviceDescs(list<OCLDeviceDesc>& dl)
 	}
 }
 
-string GSUtil::GetDeviceUniqueName(cl::Device& device)
+std::string GSUtil::GetDeviceUniqueName(cl::Device& device)
 {
 	std::string vendor = device.getInfo<CL_DEVICE_VENDOR>();
 	std::string name = device.getInfo<CL_DEVICE_NAME>();
 	std::string version = device.getInfo<CL_DEVICE_OPENCL_C_VERSION>();
 
-	string type;
+	std::string type;
 
 	switch(device.getInfo<CL_DEVICE_TYPE>())
 	{
@@ -430,16 +434,34 @@ GSRendererType GSUtil::GetBestRenderer()
 	return GSRendererType::DX9_HW;
 }
 
-#else
+#endif
 
 void GSmkdir(const char* dir)
 {
+#ifdef _WIN32
+	if (!CreateDirectory(dir, nullptr)) {
+		DWORD errorID = ::GetLastError();
+		if (errorID != ERROR_ALREADY_EXISTS) {
+			fprintf(stderr, "Failed to create directory: %s error %u\n", dir, errorID);
+		}
+	}
+#else
 	int err = mkdir(dir, 0777);
 	if (!err && errno != EEXIST)
 		fprintf(stderr, "Failed to create directory: %s\n", dir);
+#endif
 }
 
+std::string GStempdir()
+{
+#ifdef _WIN32
+	char path[MAX_PATH + 1];
+	GetTempPath(MAX_PATH, path);
+	return {path};
+#else
+	return "/tmp";
 #endif
+}
 
 const char* psm_str(int psm)
 {
@@ -462,6 +484,8 @@ const char* psm_str(int psm)
 		case PSM_PSMZ24:   return "Z_24";
 		case PSM_PSMZ16:   return "Z_16";
 		case PSM_PSMZ16S:  return "Z_16S";
+
+		case PSM_PSGPU24:     return "PS24";
 
 		default:break;
 	}

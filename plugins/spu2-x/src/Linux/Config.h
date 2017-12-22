@@ -82,16 +82,16 @@ extern u32 OutputModule;
 extern int SndOutLatencyMS;
 
 extern wchar_t dspPlugin[];
-extern int  dspPluginModule;
+extern int dspPluginModule;
 
-extern bool	dspPluginEnabled;
+extern bool dspPluginEnabled;
 extern int SynchMode;
 
 namespace SoundtouchCfg
 {
-	void ReadSettings();
-	void WriteSettings();
-	void DisplayDialog();
+void ReadSettings();
+void WriteSettings();
+void DisplayDialog();
 };
 
 void ReadSettings();

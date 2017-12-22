@@ -54,7 +54,7 @@ public:
 public:
 	PerPluginMenuInfo() : MyMenu(*new wxMenu()), PluginId (PluginId_Count) {}
 
-	virtual ~PerPluginMenuInfo() throw();
+	virtual ~PerPluginMenuInfo() = default;
 
 	void Populate( PluginsEnum_t pid );
 	void OnUnloaded();
@@ -80,7 +80,7 @@ public:
 		m_menu_cmd = menu_command;
 	}
 	
-	virtual ~InvokeMenuCommand_OnSysStateUnlocked() throw() {}
+	virtual ~InvokeMenuCommand_OnSysStateUnlocked() = default;
 
 	virtual void SaveStateAction_OnCreateFinished()
 	{
@@ -115,8 +115,11 @@ protected:
 	wxMenu&			m_LoadStatesSubmenu;
 	wxMenu&			m_SaveStatesSubmenu;
 
+	wxMenuItem*		m_menuItem_RecentIsoMenu;
 	wxMenuItem&		m_MenuItem_Console;
+#if defined(__unix__)
 	wxMenuItem&		m_MenuItem_Console_Stdio;
+#endif
 
 	PerPluginMenuInfo	m_PluginMenuPacks[PluginId_Count];
 
@@ -126,7 +129,7 @@ protected:
 
 public:
 	MainEmuFrame(wxWindow* parent, const wxString& title);
-	virtual ~MainEmuFrame() throw();
+	virtual ~MainEmuFrame();
 
 	void OnLogBoxHidden();
 
@@ -138,7 +141,7 @@ public:
 	
 	bool Destroy();
 
-	void ApplyConfigToGui( AppConfig& configToApply, int flags=0 ); //flags are: AppConfig::APPLY_CONFIG_FROM_PRESET and (currently unused) AppConfig::APPLY_CONFIG_MANUALLY PROPAGATE
+	void ApplyConfigToGui(AppConfig& configToApply, int flags = 0);
 	void CommitPreset_noTrigger();
 	void AppendKeycodeNamesToMenuOptions();
 
@@ -162,10 +165,10 @@ protected:
 	void Menu_WindowSettings_Click(wxCommandEvent &event);
 	void Menu_GSSettings_Click(wxCommandEvent &event);
 	void Menu_SelectPluginsBios_Click(wxCommandEvent &event);
-	void Menu_Language_Click(wxCommandEvent &event);
 	void Menu_ResetAllSettings_Click(wxCommandEvent &event);
 
 	void Menu_IsoBrowse_Click(wxCommandEvent &event);
+	void Menu_IsoClear_Click(wxCommandEvent &event);
 	void Menu_EnableBackupStates_Click(wxCommandEvent &event);
 	void Menu_EnablePatches_Click(wxCommandEvent &event);
 	void Menu_EnableCheats_Click(wxCommandEvent &event);
@@ -183,7 +186,6 @@ protected:
 	void Menu_Exit_Click(wxCommandEvent &event);
 
 	void Menu_SuspendResume_Click(wxCommandEvent &event);
-	void Menu_SysReset_Click(wxCommandEvent &event);
 	void Menu_SysShutdown_Click(wxCommandEvent &event);
 
 	void Menu_ConfigPlugin_Click(wxCommandEvent &event);
@@ -193,6 +195,8 @@ protected:
 	void Menu_Debug_Open_Click(wxCommandEvent &event);
 	void Menu_Debug_MemoryDump_Click(wxCommandEvent &event);
 	void Menu_Debug_Logging_Click(wxCommandEvent &event);
+	void Menu_Debug_CreateBlockdump_Click(wxCommandEvent &event);
+	void Menu_Ask_On_Boot_Click(wxCommandEvent &event);
 
 	void Menu_ShowConsole(wxCommandEvent &event);
 	void Menu_ChangeLang(wxCommandEvent &event);
@@ -208,8 +212,6 @@ protected:
 // ------------------------------------------------------------------------
 
 	wxMenu* MakeStatesSubMenu( int baseid, int loadBackupId=-1 ) const;
-	wxMenu* MakeStatesMenu();
-	wxMenu* MakeLanguagesMenu() const;
 
 	void ConnectMenus();
 

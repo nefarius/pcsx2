@@ -9,7 +9,6 @@ endif(NOT TOP_CMAKE_WAS_SOURCED)
 set(Output Utilities)
 
 set(CommonFlags
-	-fno-strict-aliasing
     )
 
 set(UtilitiesFinalFlags ${CommonFlags})
@@ -21,7 +20,6 @@ set(UtilitiesSources
 	../../include/Utilities/FixedPointTypes.inl
 	../../include/Utilities/EventSource.inl
 	../../include/Utilities/SafeArray.inl
-	../../include/Utilities/TlsVariable.inl
 	CheckedStaticBox.cpp
 	Console.cpp
 	EventSource.cpp
@@ -40,10 +38,10 @@ set(UtilitiesSources
 	pxStreams.cpp
 	pxTranslate.cpp
 	pxWindowTextWriter.cpp
+	RwMutex.cpp
 	StringHelpers.cpp
 	ThreadingDialogs.cpp
 	ThreadTools.cpp
-	vssprintf.cpp
 	wxAppWithHelpers.cpp
 	wxGuiTools.cpp
 	wxHelpers.cpp
@@ -60,7 +58,7 @@ set(UtilitiesHeaders
 	../../include/Utilities/FixedPointTypes.h
 	../../include/Utilities/General.h
 	../../include/Utilities/HashMap.h
-	../../include/Utilities/lnx_memzero.h
+	../../include/Utilities/MakeUnique.h
 	../../include/Utilities/MemcpyFast.h
 	../../include/Utilities/MemsetFast.inl
 	../../include/Utilities/Path.h
@@ -71,6 +69,7 @@ set(UtilitiesHeaders
 	../../include/Utilities/pxStaticText.h
 	../../include/Utilities/pxStreams.h
 	../../include/Utilities/RedtapeWindows.h
+	../../include/Utilities/RwMutex.h
 	../../include/Utilities/SafeArray.h
 	../../include/Utilities/ScopedAlloc.h
 	../../include/Utilities/ScopedPtrMT.h
@@ -82,6 +81,7 @@ set(UtilitiesHeaders
 	../../include/Utilities/wxBaseTools.h
 	../../include/Utilities/wxGuiTools.h
 	PrecompiledHeader.h
+	ThreadingInternal.h
 )
 
 if(APPLE)
@@ -89,6 +89,13 @@ if(APPLE)
 		Darwin/DarwinThreads.cpp
 		Darwin/DarwinMisc.cpp
 		Darwin/DarwinSemaphore.cpp
+	)
+elseif(Windows)
+	LIST(APPEND UtilitiesSources
+		x86/MemcpyFast.cpp
+		Windows/WinThreads.cpp
+		Windows/WinHostSys.cpp
+		Windows/WinMisc.cpp
 	)
 else()
 	LIST(APPEND UtilitiesSources

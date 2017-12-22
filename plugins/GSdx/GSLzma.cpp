@@ -21,25 +21,40 @@
 #include "stdafx.h"
 #include "GSLzma.h"
 
-#if defined(__unix__)
-
-GSDumpFile::GSDumpFile(char* filename) {
+GSDumpFile::GSDumpFile(char* filename, const char* repack_filename) {
 	m_fp = fopen(filename, "rb");
-	if (m_fp == NULL) {
+	if (m_fp == nullptr) {
 		fprintf(stderr, "failed to open %s\n", filename);
 		throw "BAD"; // Just exit the program
 	}
+
+	m_repack_fp = nullptr;
+	if (repack_filename) {
+		m_repack_fp = fopen(repack_filename, "wb");
+		if (m_repack_fp == nullptr)
+			fprintf(stderr, "failed to open %s for repack\n", repack_filename);
+	}
+}
+
+void GSDumpFile::Repack(void* ptr, size_t size) {
+	if (m_repack_fp == nullptr)
+		return;
+
+	size_t ret = fwrite(ptr, 1, size, m_repack_fp);
+	if (ret != size)
+		fprintf(stderr, "Failed to repack\n");
+
 }
 
 GSDumpFile::~GSDumpFile() {
 	if (m_fp)
 		fclose(m_fp);
+	if (m_repack_fp)
+		fclose(m_repack_fp);
 }
 
 /******************************************************************/
-#ifdef LZMA_SUPPORTED
-
-GSDumpLzma::GSDumpLzma(char* filename) : GSDumpFile(filename) {
+GSDumpLzma::GSDumpLzma(char* filename, const char* repack_filename) : GSDumpFile(filename, repack_filename) {
 
 	memset(&m_strm, 0, sizeof(lzma_stream));
 
@@ -96,24 +111,32 @@ void GSDumpLzma::Decompress() {
 }
 
 bool GSDumpLzma::IsEof() {
-	return feof(m_fp) && (m_avail == 0);
+	return feof(m_fp) && m_avail == 0 && m_strm.avail_in == 0;
 }
 
-void GSDumpLzma::Read(void* ptr, size_t size) {
+bool GSDumpLzma::Read(void* ptr, size_t size) {
 	size_t off = 0;
 	uint8_t* dst = (uint8_t*)ptr;
-	while (size) {
+	size_t full_size = size;
+	while (size && !IsEof()) {
 		if (m_avail == 0) {
 			Decompress();
 		}
 
-		size_t l = min(size, m_avail);
+		size_t l = std::min(size, m_avail);
 		memcpy(dst + off, m_area+m_start, l);
 		m_avail -= l;
 		size    -= l;
 		m_start += l;
 		off     += l;
 	}
+
+	if (size == 0) {
+		Repack(ptr, full_size);
+		return true;
+	}
+
+	return false;
 }
 
 GSDumpLzma::~GSDumpLzma() {
@@ -125,11 +148,9 @@ GSDumpLzma::~GSDumpLzma() {
 		_aligned_free(m_area);
 }
 
-#endif
-
 /******************************************************************/
 
-GSDumpRaw::GSDumpRaw(char* filename) : GSDumpFile(filename) {
+GSDumpRaw::GSDumpRaw(char* filename, const char* repack_filename) : GSDumpFile(filename, repack_filename) {
 	m_buff_size = 0;
 	m_area      = NULL;
 	m_inbuf     = NULL;
@@ -137,25 +158,21 @@ GSDumpRaw::GSDumpRaw(char* filename) : GSDumpFile(filename) {
 	m_start     = 0;
 }
 
-GSDumpRaw::~GSDumpRaw() {
-}
-
 bool GSDumpRaw::IsEof() {
-	return feof(m_fp);
+	return !!feof(m_fp);
 }
 
-void GSDumpRaw::Read(void* ptr, size_t size) {
-	if (size == 1) {
-		// I don't know why but read of size 1 is not happy
-		int v = fgetc(m_fp);
-		memcpy(ptr, &v, 1);
-	} else {
-		size_t ret = fread(ptr, 1, size, m_fp);
-		if (ret != size) {
-			fprintf(stderr, "GSDumpRaw:: Read error\n");
-			throw "BAD"; // Just exit the program
-		}
+bool GSDumpRaw::Read(void* ptr, size_t size) {
+	size_t ret = fread(ptr, 1, size, m_fp);
+	if (ret != size && ferror(m_fp)) {
+		fprintf(stderr, "GSDumpRaw:: Read error (%zu/%zu)\n", ret, size);
+		throw "BAD"; // Just exit the program
 	}
-}
 
-#endif
+	if (ret == size) {
+		Repack(ptr, size);
+		return true;
+	}
+
+	return false;
+}

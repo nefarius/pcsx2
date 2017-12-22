@@ -127,6 +127,8 @@ static void ReadTrack() {
 	cdr.Prev[2] = itob(cdr.SetSector[2]);
 
 	CDVD_LOG("KEY *** %x:%x:%x", cdr.Prev[0], cdr.Prev[1], cdr.Prev[2]);
+	if (EmuConfig.CdvdVerboseReads)
+		DevCon.WriteLn("CD Read Sector %x", msf_to_lsn(cdr.SetSector));
 	cdr.RErr = DoCDVDreadTrack(msf_to_lsn(cdr.SetSector), CDVD_MODE_2340);
 }
 
@@ -515,7 +517,7 @@ void  cdrReadInterrupt() {
 
 	if (cdr.RErr == -1)
 	{
-		CDVD_LOG(" err\n");
+		DevCon.Warning("CD err");
 		memzero(cdr.Transfer);
 		cdr.Stat = DiskError;
 		cdr.Result[0] |= 0x01;
@@ -542,12 +544,13 @@ void  cdrReadInterrupt() {
 	cdr.Readed = 0;
 
 	if ((cdr.Transfer[4+2] & 0x80) && (cdr.Mode & 0x2)) { // EOF
-		CDVD_LOG("AutoPausing Read");
+		DevCon.Warning("CD AutoPausing Read");
 		AddIrqQueue(CdlPause, 0x800);
 	}
 	else {
 		ReadTrack();
-		CDREAD_INT((cdr.Mode & 0x80) ? (cdReadTime / 2) : cdReadTime);
+		// psxmode: extra delays | remove once dma is stable (fixes "dma3 not ready" and mdec glitches)
+		CDREAD_INT((cdr.Mode & 0x80) ? (cdReadTime / 2) * 3 : cdReadTime * 3);
 	}
 
 	psxHu32(0x1070)|= 0x4;
@@ -912,7 +915,9 @@ void psxDma3(u32 madr, u32 bcr, u32 chcr) {
 		case 0x11000000:
 		case 0x11400100:
 			if (cdr.Readed == 0) {
-				CDVD_LOG("*** DMA 3 *** NOT READY");
+				DevCon.Warning("*** DMA 3 *** NOT READY");
+				HW_DMA3_CHCR &= ~0x01000000; //hack
+				psxDmaInterrupt(3); //hack
 				return;
 			}
 

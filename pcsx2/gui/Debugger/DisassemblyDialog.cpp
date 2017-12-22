@@ -31,6 +31,7 @@ BEGIN_EVENT_TABLE(DisassemblyDialog, wxFrame)
    EVT_COMMAND( wxID_ANY, debEVT_SETSTATUSBARTEXT, DisassemblyDialog::onDebuggerEvent )
    EVT_COMMAND( wxID_ANY, debEVT_UPDATELAYOUT, DisassemblyDialog::onDebuggerEvent )
    EVT_COMMAND( wxID_ANY, debEVT_GOTOINMEMORYVIEW, DisassemblyDialog::onDebuggerEvent )
+   EVT_COMMAND( wxID_ANY, debEVT_REFERENCEMEMORYVIEW, DisassemblyDialog::onDebuggerEvent )
    EVT_COMMAND( wxID_ANY, debEVT_RUNTOPOS, DisassemblyDialog::onDebuggerEvent )
    EVT_COMMAND( wxID_ANY, debEVT_GOTOINDISASM, DisassemblyDialog::onDebuggerEvent )
    EVT_COMMAND( wxID_ANY, debEVT_STEPOVER, DisassemblyDialog::onDebuggerEvent )
@@ -386,7 +387,7 @@ void DisassemblyDialog::stepOver()
 	u32 breakpointAddress = currentPc+disassembly->getInstructionSizeAt(currentPc);
 	if (info.isBranch)
 	{
-		if (info.isConditional == false)
+		if (!info.isConditional)
 		{
 			if (info.isLinkedBranch)	// jal, jalr
 			{
@@ -433,7 +434,7 @@ void DisassemblyDialog::stepInto()
 	u32 breakpointAddress = currentPc+disassembly->getInstructionSizeAt(currentPc);
 	if (info.isBranch)
 	{
-		if (info.isConditional == false)
+		if (!info.isConditional)
 		{
 			breakpointAddress = info.branchTarget;
 		} else {
@@ -502,9 +503,14 @@ void DisassemblyDialog::onDebuggerEvent(wxCommandEvent& evt)
 		{
 			currentCpu->showMemoryView();
 
-			CtrlMemView *memview = currentCpu->getMemoryView();
-			memview->gotoAddress(evt.GetInt(), true);
-			memview->SetFocus();
+			currentCpu->getMemoryView()->gotoAddress(evt.GetInt(), true);
+			currentCpu->getDisassembly()->SetFocus();
+		}
+	} else if (type == debEVT_REFERENCEMEMORYVIEW)
+	{
+		if (currentCpu != NULL)
+		{
+			currentCpu->getMemoryView()->updateReference(evt.GetInt());
 		}
 	} else if (type == debEVT_RUNTOPOS)
 	{

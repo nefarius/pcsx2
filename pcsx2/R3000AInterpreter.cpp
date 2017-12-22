@@ -93,7 +93,7 @@ void psxJ()
 {
 	// check for iop module import table magic
 	u32 delayslot = iopMemRead32(psxRegs.pc);
-	if (delayslot >> 16 == 0x2400 && irxImportExec(irxImportLibname(psxRegs.pc), delayslot & 0xffff))
+	if (delayslot >> 16 == 0x2400 && irxImportExec(irxImportTableAddr(psxRegs.pc), delayslot & 0xffff))
 		return;
 
 	doBranch(_JumpTarget_);
@@ -147,7 +147,6 @@ static __fi void execI()
 	psxBSC[psxRegs.code >> 26]();
 }
 
-
 static void doBranch(s32 tar) {
 	branch2 = iopIsDelaySlot = true;
 	branchPC = tar;
@@ -179,6 +178,9 @@ static s32 intExecuteBlock( s32 eeCycles )
 	iopCycleEE = eeCycles;
 
 	while (iopCycleEE > 0){
+		if ((psxHu32(HW_ICFG) & 8) && ((psxRegs.pc & 0x1fffffffU) == 0xa0 || (psxRegs.pc & 0x1fffffffU) == 0xb0 || (psxRegs.pc & 0x1fffffffU) == 0xc0))
+			psxBiosCall();
+
 		branch2 = 0;
 		while (!branch2) {
 			execI();

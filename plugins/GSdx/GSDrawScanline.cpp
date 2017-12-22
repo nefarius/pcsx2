@@ -23,6 +23,9 @@
 #include "GSDrawScanline.h"
 #include "GSTextureCacheSW.h"
 
+// Lack of a better home
+std::unique_ptr<GSScanlineConstantData> g_const(new GSScanlineConstantData());
+
 GSDrawScanline::GSDrawScanline()
 	: m_sp_map("GSSetupPrim", &m_local)
 	, m_ds_map("GSDrawScanline", &m_local)
@@ -32,17 +35,27 @@ GSDrawScanline::GSDrawScanline()
 	m_local.gd = &m_global;
 }
 
-GSDrawScanline::~GSDrawScanline()
-{
-}
-
 void GSDrawScanline::BeginDraw(const GSRasterizerData* data)
 {
 	memcpy(&m_global, &((const SharedData*)data)->global, sizeof(m_global));
 
 	if(m_global.sel.mmin && m_global.sel.lcm)
 	{
+#if defined(__GNUC__) && _M_SSE >= 0x501
+		// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80286
+		//
+		// GCC 4.9/5/6 doesn't generate correct AVX2 code for extract32<0>. It is fixed in GCC7
+		// Intrinsic code is _mm_cvtsi128_si32(_mm256_castsi256_si128(m))
+		// It seems recent Clang got _mm256_cvtsi256_si32(m) instead. I don't know about GCC.
+		//
+		// Generated code keep the integer in an XMM register but bit [64:32] aren't cleared.
+		// So the srl16 shift will be huge and v will be 0.
+		//
+		int lod_x = m_global.lod.i.x0;
+		GSVector4i v = m_global.t.minmax.srl16(lod_x);
+#else
 		GSVector4i v = m_global.t.minmax.srl16(m_global.lod.i.extract32<0>());//.x);
+#endif
 
 		v = v.upl16(v);
 
@@ -114,7 +127,7 @@ void GSDrawScanline::SetupPrim(const GSVertexSW* vertex, const uint32* index, co
 
 	#if _M_SSE >= 0x501
 
-	const GSVector8* shift = GSSetupPrimCodeGenerator::m_shift;
+	const GSVector8* shift = (GSVector8*)g_const->m_shift_256b;
 
 	if(has_z || has_f)
 	{
@@ -268,7 +281,7 @@ void GSDrawScanline::SetupPrim(const GSVertexSW* vertex, const uint32* index, co
 
 	#else
 
-	const GSVector4* shift = GSSetupPrimCodeGenerator::m_shift;
+	const GSVector4* shift = (GSVector4*)g_const->m_shift_128b;
 
 	if(has_z || has_f)
 	{
@@ -438,7 +451,7 @@ void GSDrawScanline::DrawScanline(int pixels, int left, int top, const GSVertexS
 		skip = left & 7;
 		steps = pixels + skip - 8;
 		left -= skip;
-		test = GSVector8i::i8to32c(GSDrawScanlineCodeGenerator::m_test[skip]) | GSVector8i::i8to32c(GSDrawScanlineCodeGenerator::m_test[15 + (steps & (steps >> 31))]);
+		test = GSVector8i::i8to32c(g_const->m_test_256b[skip]) | GSVector8i::i8to32c(g_const->m_test_256b[15 + (steps & (steps >> 31))]);
 	}
 	else
 	{
@@ -532,7 +545,7 @@ void GSDrawScanline::DrawScanline(int pixels, int left, int top, const GSVertexS
 
 			if(sel.zb)
 			{
-				za = fza_base->y + fza_offset->y;
+				za = (fza_base->y + fza_offset->y) % HALF_VM_SIZE;
 
 				if(sel.prim != GS_SPRITE_CLASS)
 				{
@@ -598,10 +611,8 @@ void GSDrawScanline::DrawScanline(int pixels, int left, int top, const GSVertexS
 				{
 					if(!sel.fst)
 					{
-						GSVector8 qrcp = q.rcp();
-
-						u = GSVector8i(s * qrcp);
-						v = GSVector8i(t * qrcp);
+						u = GSVector8i(s / q);
+						v = GSVector8i(t / q);
 					}
 					else
 					{
@@ -902,11 +913,9 @@ void GSDrawScanline::DrawScanline(int pixels, int left, int top, const GSVertexS
 				{
 					if(!sel.fst)
 					{
-						GSVector8 qrcp = q.rcp();
+						u = GSVector8i(s / q);
+						v = GSVector8i(t / q);
 
-						u = GSVector8i(s * qrcp);
-						v = GSVector8i(t * qrcp);
-					
 						if(sel.ltf)
 						{
 							u -= 0x8000;
@@ -1130,7 +1139,7 @@ void GSDrawScanline::DrawScanline(int pixels, int left, int top, const GSVertexS
 
 			if(sel.fb)
 			{
-				fa = fza_base->x + fza_offset->x;
+				fa = (fza_base->x + fza_offset->x) % HALF_VM_SIZE;
 
 				if(sel.rfb)
 				{
@@ -1529,12 +1538,13 @@ void GSDrawScanline::DrawScanline(int pixels, int left, int top, const GSVertexS
 
 		if(!sel.notest)
 		{
-			test = GSVector8i::i8to32c(GSDrawScanlineCodeGenerator::m_test[15 + (steps & (steps >> 31))]);
+			test = GSVector8i::i8to32c(g_const->m_test_256b[15 + (steps & (steps >> 31))]);
 		}
 	}
 
 	#else
 
+	const GSVector4i* const_test = (GSVector4i*)g_const->m_test_128b;
 	GSVector4i test;
 	GSVector4 zo;
 	GSVector4i f;
@@ -1552,7 +1562,7 @@ void GSDrawScanline::DrawScanline(int pixels, int left, int top, const GSVertexS
 		skip = left & 3;
 		steps = pixels + skip - 4;
 		left -= skip;
-		test = GSDrawScanlineCodeGenerator::m_test[skip] | GSDrawScanlineCodeGenerator::m_test[7 + (steps & (steps >> 31))];
+		test = const_test[skip] | const_test[7 + (steps & (steps >> 31))];
 	}
 	else
 	{
@@ -1646,7 +1656,7 @@ void GSDrawScanline::DrawScanline(int pixels, int left, int top, const GSVertexS
 
 			if(sel.zb)
 			{
-				za = fza_base->y + fza_offset->y;
+				za = (fza_base->y + fza_offset->y) % HALF_VM_SIZE;
 
 				if(sel.prim != GS_SPRITE_CLASS)
 				{
@@ -1710,10 +1720,8 @@ void GSDrawScanline::DrawScanline(int pixels, int left, int top, const GSVertexS
 				{
 					if(!sel.fst)
 					{
-						GSVector4 qrcp = q.rcp();
-
-						u = GSVector4i(s * qrcp);
-						v = GSVector4i(t * qrcp);
+						u = GSVector4i(s / q);
+						v = GSVector4i(t / q);
 					}
 					else
 					{
@@ -2027,11 +2035,9 @@ void GSDrawScanline::DrawScanline(int pixels, int left, int top, const GSVertexS
 				{
 					if(!sel.fst)
 					{
-						GSVector4 qrcp = q.rcp();
+						u = GSVector4i(s / q);
+						v = GSVector4i(t / q);
 
-						u = GSVector4i(s * qrcp);
-						v = GSVector4i(t * qrcp);
-					
 						if(sel.ltf)
 						{
 							u -= 0x8000;
@@ -2249,7 +2255,7 @@ void GSDrawScanline::DrawScanline(int pixels, int left, int top, const GSVertexS
 
 			if(sel.fb)
 			{
-				fa = fza_base->x + fza_offset->x;
+				fa = (fza_base->x + fza_offset->x) % HALF_VM_SIZE;
 
 				if(sel.rfb)
 				{
@@ -2622,7 +2628,7 @@ void GSDrawScanline::DrawScanline(int pixels, int left, int top, const GSVertexS
 
 		if(!sel.notest)
 		{
-			test = GSDrawScanlineCodeGenerator::m_test[7 + (steps & (steps >> 31))];
+			test = const_test[7 + (steps & (steps >> 31))];
 		}
 	}
 

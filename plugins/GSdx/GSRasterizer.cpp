@@ -52,11 +52,12 @@ GSRasterizer::GSRasterizer(IDrawScanline* ds, int id, int threads, GSPerfMon* pe
 	m_edge.buff = (GSVertexSW*)vmalloc(sizeof(GSVertexSW) * 2048, false);
 	m_edge.count = 0;
 
-	m_scanline = (uint8*)_aligned_malloc((2048 >> m_thread_height) + 16, 64);
+	int rows = (2048 >> m_thread_height) + 16;
+	m_scanline = (uint8*)_aligned_malloc(rows, 64);
 
 	int row = 0;
 
-	while(row < (2048 >> m_thread_height))
+	while(row < rows)
 	{
 		for(int i = 0; i < threads; i++, row++)
 		{
@@ -113,7 +114,7 @@ int GSRasterizer::FindMyNextScanline(int top) const
 	return top;
 }
 
-void GSRasterizer::Queue(const shared_ptr<GSRasterizerData>& data)
+void GSRasterizer::Queue(const std::shared_ptr<GSRasterizerData>& data)
 {
 	Draw(data.get());
 }
@@ -450,8 +451,6 @@ void GSRasterizer::DrawTriangle(const GSVertexSW* vertex, const uint32* index)
 
 	m2 &= 1;
 
-	cross = cross.rcpnr();
-
 	GSVector4 dxy01 = dv[0].p.xyxy(dv[1].p);
 
 	GSVector4 dx = dxy01.xzxy(dv[2].p);
@@ -463,7 +462,8 @@ void GSRasterizer::DrawTriangle(const GSVertexSW* vertex, const uint32* index)
 	ddx[1] = ddx[0].yxzw();
 	ddx[2] = ddx[0].xzyw();
 
-	GSVector8 _dxy01c(dxy01 * cross);
+	// Precision is important here. Don't use reciprocal, it will break Jak3/Xenosaga1
+	GSVector8 _dxy01c(dxy01 / cross);
 
 	/*
 	dscan = dv[1] * dxy01c.yyyy() - dv[0] * dxy01c.wwww();
@@ -638,8 +638,6 @@ void GSRasterizer::DrawTriangle(const GSVertexSW* vertex, const uint32* index)
 
 	m2 &= 1;
 
-	cross = cross.rcpnr();
-
 	GSVector4 dxy01 = dv[0].p.xyxy(dv[1].p);
 
 	GSVector4 dx = dxy01.xzxy(dv[2].p);
@@ -651,7 +649,8 @@ void GSRasterizer::DrawTriangle(const GSVertexSW* vertex, const uint32* index)
 	ddx[1] = ddx[0].yxzw();
 	ddx[2] = ddx[0].xzyw();
 
-	GSVector4 dxy01c = dxy01 * cross;
+	// Precision is important here. Don't use reciprocal, it will break Jak3/Xenosaga1
+	GSVector4 dxy01c = dxy01 / cross;
 
 	/*
 	dscan = dv[1] * dxy01c.yyyy() - dv[0] * dxy01c.wwww();
@@ -1143,11 +1142,12 @@ GSRasterizerList::GSRasterizerList(int threads, GSPerfMon* perfmon)
 {
 	m_thread_height = compute_best_thread_height(threads);
 
-	m_scanline = (uint8*)_aligned_malloc((2048 >> m_thread_height) + 16, 64);
+	int rows = (2048 >> m_thread_height) + 16;
+	m_scanline = (uint8*)_aligned_malloc(rows, 64);
 
 	int row = 0;
 
-	while(row < (2048 >> m_thread_height))
+	while(row < rows)
 	{
 		for(int i = 0; i < threads; i++, row++)
 		{
@@ -1158,15 +1158,10 @@ GSRasterizerList::GSRasterizerList(int threads, GSPerfMon* perfmon)
 
 GSRasterizerList::~GSRasterizerList()
 {
-	for(auto i = m_workers.begin(); i != m_workers.end(); i++)
-	{
-		delete *i;
-	}
-
 	_aligned_free(m_scanline);
 }
 
-void GSRasterizerList::Queue(const shared_ptr<GSRasterizerData>& data)
+void GSRasterizerList::Queue(const std::shared_ptr<GSRasterizerData>& data)
 {
 	GSVector4i r = data->bbox.rintersect(data->scissor);
 
@@ -1213,33 +1208,8 @@ int GSRasterizerList::GetPixels(bool reset)
 
 	for(size_t i = 0; i < m_workers.size(); i++)
 	{
-		pixels += m_workers[i]->GetPixels(reset);
+		pixels += m_r[i]->GetPixels(reset);
 	}
 
 	return pixels;
-}
-
-// GSRasterizerList::GSWorker
-
-GSRasterizerList::GSWorker::GSWorker(GSRasterizer* r)
-	: GSJobQueue<shared_ptr<GSRasterizerData>, 65536>()
-	, m_r(r)
-{
-}
-
-GSRasterizerList::GSWorker::~GSWorker()
-{
-	Wait();
-
-	delete m_r;
-}
-
-int GSRasterizerList::GSWorker::GetPixels(bool reset)
-{
-	return m_r->GetPixels(reset);
-}
-
-void GSRasterizerList::GSWorker::Process(shared_ptr<GSRasterizerData>& item)
-{
-	m_r->Draw(item.get());
 }

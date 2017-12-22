@@ -120,8 +120,8 @@ static wxString ApplyTemplate(const wxString &name, const wxDirName &base,
 	wxString key = INDEX_TEMPLATE_KEY;
 	tem = tem.Trim(true).Trim(false); // both sides
 
-	int first = tem.find(key);
-	if (first < 0 // not found
+	size_t first = tem.find(key);
+	if (first == wxString::npos // not found
 	    || first != tem.rfind(key) // more than one instance
 	    || !canEndWithKey && first == tem.length() - key.length())
 	{
@@ -389,7 +389,7 @@ int GzippedFileReader::_ReadSync(void* pBuffer, PX_off_t offset, uint bytesToRea
 	uint maxInChunk = GZFILE_READ_CHUNK_SIZE - offset % GZFILE_READ_CHUNK_SIZE;
 	if (bytesToRead > maxInChunk) {
 		int first = _ReadSync(pBuffer, offset, maxInChunk);
-		if (first != maxInChunk)
+		if (first != (int)maxInChunk)
 			return first; // EOF or failure
 
 		int rest = _ReadSync((char*)pBuffer + maxInChunk, offset + maxInChunk, bytesToRead - maxInChunk);
@@ -429,8 +429,13 @@ int GzippedFileReader::_ReadSync(void* pBuffer, PX_off_t offset, uint bytesToRea
 		// move the state to the appropriate span because it will be faster than using the index
 		int targetix = (extractOffset + res) / span;
 		m_zstates[targetix].Kill();
-		m_zstates[targetix] = m_zstates[spanix]; // We have elements for the entire file, and another one.
-		m_zstates[spanix].state.isValid = 0; // Not killing because we need the state.
+		// We have elements for the entire file, and another one.
+		m_zstates[targetix].state.in_offset = m_zstates[spanix].state.in_offset;
+		m_zstates[targetix].state.isValid = m_zstates[spanix].state.isValid;
+		m_zstates[targetix].state.out_offset = m_zstates[spanix].state.out_offset;
+		inflateCopy(&m_zstates[targetix].state.strm, &m_zstates[spanix].state.strm);
+
+		m_zstates[spanix].Kill();
 	}
 
 	if (size <= GZFILE_READ_CHUNK_SIZE)

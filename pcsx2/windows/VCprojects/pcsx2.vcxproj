@@ -188,13 +188,16 @@
     <ClCompile Include="..\..\Linux\LnxConsolePipe.cpp">
       <ExcludedFromBuild>true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="..\..\Mdec.cpp" />
     <ClCompile Include="..\..\MultipartFileReader.cpp" />
     <ClCompile Include="..\..\Patch.cpp" />
     <ClCompile Include="..\..\Patch_Memory.cpp" />
     <ClCompile Include="..\..\PrecompiledHeader.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="..\..\ps2\Iop\PsxBios.cpp" />
     <ClCompile Include="..\..\ps2\LegacyDmac.cpp" />
+    <ClCompile Include="..\..\ps2\pgif.cpp" />
     <ClCompile Include="..\..\ShiftJisToUnicode.cpp" />
     <ClCompile Include="..\..\sif2.cpp" />
     <ClCompile Include="..\..\Utilities\FileUtils.cpp" />
@@ -337,7 +340,6 @@
     </ClCompile>
     <ClCompile Include="..\..\x86\ix86-32\iCore-32.cpp" />
     <ClCompile Include="..\..\x86\iCore.cpp" />
-    <ClCompile Include="..\WinSysExec.cpp" />
     <ClCompile Include="..\..\CDVD\IsoFS\IsoFile.cpp" />
     <ClCompile Include="..\..\CDVD\IsoFS\IsoFS.cpp" />
     <ClCompile Include="..\..\CDVD\IsoFS\IsoFSCDVD.cpp" />
@@ -366,7 +368,6 @@
     <ClCompile Include="..\..\gui\MemoryCardFolder.cpp" />
     <ClCompile Include="..\..\gui\MessageBoxes.cpp" />
     <ClCompile Include="..\..\gui\MSWstuff.cpp" />
-    <ClCompile Include="..\..\gui\pxLogTextCtrl.cpp" />
     <ClCompile Include="..\..\gui\RecentIsoList.cpp" />
     <ClCompile Include="..\..\gui\UpdateUI.cpp" />
     <ClCompile Include="..\..\gui\Dialogs\AboutBoxDialog.cpp" />
@@ -379,9 +380,7 @@
     <ClCompile Include="..\..\gui\Dialogs\ImportSettingsDialog.cpp" />
     <ClCompile Include="..\..\gui\Dialogs\LogOptionsDialog.cpp" />
     <ClCompile Include="..\..\gui\Dialogs\PickUserModeDialog.cpp" />
-    <ClCompile Include="..\..\gui\Dialogs\StuckThreadDialog.cpp" />
     <ClCompile Include="..\..\gui\Dialogs\SysConfigDialog.cpp" />
-    <ClCompile Include="..\..\gui\Panels\AudioPanel.cpp" />
     <ClCompile Include="..\..\gui\Panels\BaseApplicableConfigPanel.cpp" />
     <ClCompile Include="..\..\gui\Panels\BiosSelectorPanel.cpp" />
     <ClCompile Include="..\..\gui\Panels\CpuPanel.cpp" />
@@ -444,8 +443,10 @@
     <ClInclude Include="..\..\gui\Panels\MemoryCardPanels.h" />
     <ClInclude Include="..\..\IopGte.h" />
     <ClInclude Include="..\..\IPU\IPUdma.h" />
+    <ClInclude Include="..\..\Mdec.h" />
     <ClInclude Include="..\..\Patch.h" />
     <ClInclude Include="..\..\PrecompiledHeader.h" />
+    <ClInclude Include="..\..\ps2\pgif.h" />
     <ClInclude Include="..\..\Utilities\AsciiFile.h" />
     <ClInclude Include="..\..\Elfheader.h" />
     <ClInclude Include="..\..\CDVD\IsoFileFormats.h" />

@@ -25,7 +25,7 @@
 
 #ifdef _WIN32
 
-map<HWND, GPURenderer*> GPURenderer::m_wnd2gpu;
+std::map<HWND, GPURenderer*> GPURenderer::m_wnd2gpu;
 
 #endif
 
@@ -35,7 +35,7 @@ GPURenderer::GPURenderer(GSDevice* dev)
 	m_filter      = theApp.GetConfigI("filter");
 	m_dither      = theApp.GetConfigI("dithering");
 	m_aspectratio = theApp.GetConfigI("AspectRatio");
-	m_vsync       = theApp.GetConfigB("vsync");
+	m_vsync       = theApp.GetConfigI("vsync");
 	m_fxaa        = theApp.GetConfigB("fxaa");
 	m_shaderfx    = theApp.GetConfigB("shaderfx");
 	m_scale       = m_mem.GetScale();
@@ -46,7 +46,7 @@ GPURenderer::GPURenderer(GSDevice* dev)
 	m_hWnd = NULL;
 	m_wndproc = NULL;
 
-	m_wnd = new GSWndDX();
+	m_wnd = std::make_shared<GSWndDX>();
 
 	#endif
 }
@@ -104,7 +104,7 @@ bool GPURenderer::Create(void* hWnd)
 
 bool GPURenderer::Merge()
 {
-	GSTexture* st[2] = {GetOutput(), NULL};
+	GSTexture* st[3] = {GetOutput(), NULL, NULL};
 
 	if(!st[0])
 	{
@@ -119,7 +119,10 @@ bool GPURenderer::Merge()
 	sr[0] = GSVector4(0, 0, 1, 1);
 	dr[0] = GSVector4(0, 0, s.x, s.y);
 
-	m_dev->Merge(st, sr, dr, s, 1, 1, GSVector4(0, 0, 0, 1));
+	GSRegPMODE PMODE = {0};
+	PMODE.u32[0] = 0xFFFFFFFF;
+	GSRegEXTBUF EXTBUF = {0};
+	m_dev->Merge(st, sr, dr, s, PMODE, EXTBUF, GSVector4(0, 0, 0, 1));
 
 	if(m_shadeboost)
 	{
@@ -180,7 +183,7 @@ void GPURenderer::VSync()
 		int w = r.width() << m_scale.x;
 		int h = r.height() << m_scale.y;
 
-		string s = format(
+		std::string s = format(
 			"%lld | %d x %d | %.2f fps (%d%%) | %d/%d | %d%% CPU | %.2f | %.2f",
 			m_perfmon.GetFrame(), w, h, fps, (int)(100.0 * fps / m_env.GetFPS()),
 			(int)m_perfmon.Get(GSPerfMon::Prim),
@@ -205,7 +208,7 @@ void GPURenderer::VSync()
 	m_dev->Present(r.fit(m_aspectratio), 0);
 }
 
-bool GPURenderer::MakeSnapshot(const string& path)
+bool GPURenderer::MakeSnapshot(const std::string& path)
 {
 	time_t t = time(NULL);
 
@@ -228,7 +231,7 @@ bool GPURenderer::MakeSnapshot(const string& path)
 
 LRESULT CALLBACK GPURenderer::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-	map<HWND, GPURenderer*>::iterator i = m_wnd2gpu.find(hWnd);
+	auto i = m_wnd2gpu.find(hWnd);
 
 	if(i != m_wnd2gpu.end())
 	{

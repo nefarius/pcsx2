@@ -256,59 +256,19 @@ Dialogs::ComponentsConfigDialog::ComponentsConfigDialog(wxWindow* parent)
 		wxGetApp().PostMethod( CheckPluginsOverrides );
 }
 
-// FIXME: Purge? It's unused and does nothing.
-Dialogs::InterfaceConfigDialog::InterfaceConfigDialog(wxWindow *parent)
-	: BaseConfigurationDialog( parent, AddAppName(_("Appearance/Themes - %s")), 400 )
-{
-	ScopedBusyCursor busy( Cursor_ReallyBusy );
-
-	CreateListbook( wxGetApp().GetImgList_Config() );
-	const AppImageIds::ConfigIds& cfgid( wxGetApp().GetImgId().Config );
-
-	AddPage<AppearanceThemesPanel>	( pxL("Appearance"),	cfgid.Appearance );
-
-	AddListbook();
-	AddOkCancel();
-
-	//*this += new Panels::LanguageSelectionPanel( this ) | pxCenter;
-	//wxDialogWithHelpers::AddOkCancel( NULL, false );
-}
-
 Dialogs::InterfaceLanguageDialog::InterfaceLanguageDialog(wxWindow* parent)
-	: BaseConfigurationDialog(parent, _("Language selector"), 400)
+	: BaseConfigurationDialog(parent, _("Language Selector"), 400)
 {
 	*this += 5;
 
 	// Keep this in English - same as the menu item.
-	*this += Heading(L"New language will affect newly opened windows.\n");
-	*this += Heading(L"Full change will happen after restarting PCSX2.");
+	*this += Heading(L"Language switch will only affect newly opened windows.\n");
+	*this += Heading(L"Full change will not apply until PCSX2 is restarted.");
 	*this += new Panels::LanguageSelectionPanel(this, false) | StdCenter();
 
 	AddOkCancel();
 
 	SetSizerAndFit(GetSizer());
-}
-
-// ------------------------------------------------------------------------
-Panels::AppearanceThemesPanel::AppearanceThemesPanel( wxWindow* parent )
-	: BaseApplicableConfigPanel( parent )
-{
-
-}
-
-AppearanceThemesPanel::~AppearanceThemesPanel() throw()
-{
-
-}
-
-void AppearanceThemesPanel::Apply()
-{
-
-}
-
-void AppearanceThemesPanel::AppStatusEvent_OnSettingsApplied()
-{
-
 }
 
 bool g_ConfigPanelChanged = false;

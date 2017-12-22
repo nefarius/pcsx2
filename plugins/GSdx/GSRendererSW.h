@@ -63,9 +63,9 @@ class GSRendererSW : public GSRenderer
 
 	typedef void (GSRendererSW::*ConvertVertexBufferPtr)(GSVertexSW* RESTRICT dst, const GSVertex* RESTRICT src, size_t count);
 
-	ConvertVertexBufferPtr m_cvb[4][2][2];
+	ConvertVertexBufferPtr m_cvb[4][2][2][2];
 
-	template<uint32 primclass, uint32 tme, uint32 fst>
+	template<uint32 primclass, uint32 tme, uint32 fst, uint32 q_div>
 	void ConvertVertexBuffer(GSVertexSW* RESTRICT dst, const GSVertex* RESTRICT src, size_t count);
 
 protected:
@@ -84,9 +84,10 @@ protected:
 	void VSync(int field);
 	void ResetDevice();
 	GSTexture* GetOutput(int i, int& y_offset);
+	GSTexture* GetFeedbackOutput();
 
 	void Draw();
-	void Queue(shared_ptr<GSRasterizerData>& item);
+	void Queue(std::shared_ptr<GSRasterizerData>& item);
 	void Sync(int reason);
 	void InvalidateVideoMem(const GIFRegBITBLTBUF& BITBLTBUF, const GSVector4i& r);
 	void InvalidateLocalMem(const GIFRegBITBLTBUF& BITBLTBUF, const GSVector4i& r, bool clut = false);

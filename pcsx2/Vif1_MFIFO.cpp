@@ -159,7 +159,7 @@ void mfifoVifMaskMem(int id)
 				//DevCon.Warning("VIF MFIFO MADR below bottom of ring buffer, wrapping VIF MADR = %x Ring Bottom %x", vif1ch.madr, dmacRegs.rbor.ADDR);
 				vif1ch.madr = qwctag(vif1ch.madr);
 			}
-			if(vif1ch.madr > (dmacRegs.rbor.ADDR + dmacRegs.rbsr.RMSK)) //Usual scenario is the tag is near the end (Front Mission 4)
+			if(vif1ch.madr > (dmacRegs.rbor.ADDR + (u32)dmacRegs.rbsr.RMSK)) //Usual scenario is the tag is near the end (Front Mission 4)
 			{
 				//DevCon.Warning("VIF MFIFO MADR outside top of ring buffer, wrapping VIF MADR = %x Ring Top %x", vif1ch.madr, (dmacRegs.rbor.ADDR + dmacRegs.rbsr.RMSK)+16);
 				vif1ch.madr = qwctag(vif1ch.madr);
@@ -184,7 +184,7 @@ void mfifoVIF1transfer(int qwc)
 		if (vif1.inprogress & 0x10)
 		{
 			//Don't resume if stalled or already looping
-			if(vif1ch.chcr.STR == true && !(cpuRegs.interrupt & (1<<DMAC_MFIFO_VIF)) && !vif1Regs.stat.INT)
+			if(vif1ch.chcr.STR && !(cpuRegs.interrupt & (1<<DMAC_MFIFO_VIF)) && !vif1Regs.stat.INT)
 			{
 				SPR_LOG("Data Added, Resuming");
 				//Need to simulate the time it takes to copy here, if the VIF resumes before the SPR has finished, it isn't happy.
@@ -308,7 +308,7 @@ void vifMFIFOInterrupt()
 			return;
 		}
 	}
-	if(vif1.waitforvu == true)
+	if(vif1.waitforvu)
 	{
 	//	DevCon.Warning("Waiting on VU1 MFIFO");
 		//CPU_INT(DMAC_MFIFO_VIF, 16);
@@ -359,7 +359,7 @@ void vifMFIFOInterrupt()
 
 	vif1.vifstalled.enabled = false;
 
-	if (vif1.done == false || vif1ch.qwc) {
+	if (!vif1.done || vif1ch.qwc) {
 		switch(vif1.inprogress & 1) {
 			case 0: //Set up transfer
 				if (QWCinVIFMFIFO(vif1ch.tadr) == 0) {

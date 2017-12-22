@@ -77,7 +77,7 @@ GSTexture9::~GSTexture9()
 {
 }
 
-bool GSTexture9::Update(const GSVector4i& r, const void* data, int pitch)
+bool GSTexture9::Update(const GSVector4i& r, const void* data, int pitch, int layer)
 {
 	if(m_surface)
 	{
@@ -97,8 +97,8 @@ bool GSTexture9::Update(const GSVector4i& r, const void* data, int pitch)
 			default: ASSERT(m_desc.Format == D3DFMT_A8R8G8B8); break;
 			}
 
-			bytes = min(bytes, pitch);
-			bytes = min(bytes, lr.Pitch);
+			bytes = std::min(bytes, pitch);
+			bytes = std::min(bytes, lr.Pitch);
 
 			for(int i = 0, j = r.height(); i < j; i++, src += pitch, dst += lr.Pitch)
 			{
@@ -114,7 +114,7 @@ bool GSTexture9::Update(const GSVector4i& r, const void* data, int pitch)
 	return false;
 }
 
-bool GSTexture9::Map(GSMap& m, const GSVector4i* r)
+bool GSTexture9::Map(GSMap& m, const GSVector4i* r, int layer)
 {
 	HRESULT hr;
 
@@ -142,7 +142,7 @@ void GSTexture9::Unmap()
 	}
 }
 
-bool GSTexture9::Save(const string& fn, bool user_image, bool dds)
+bool GSTexture9::Save(const std::string& fn, bool dds)
 {
 	bool rb_swapped = true;
 	CComPtr<IDirect3DSurface9> surface;
@@ -201,7 +201,7 @@ bool GSTexture9::Save(const string& fn, bool user_image, bool dds)
 		return false;
 	}
 
-	int compression = user_image ? Z_BEST_COMPRESSION : theApp.GetConfigI("png_compression_level");
+	int compression = theApp.GetConfigI("png_compression_level");
 	bool success = GSPng::Save(format, fn, static_cast<uint8*>(slr.pBits), desc.Width, desc.Height, slr.Pitch, compression, rb_swapped);
 
 	surface->UnlockRect();

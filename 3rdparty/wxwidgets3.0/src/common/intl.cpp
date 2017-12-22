@@ -55,7 +55,12 @@
 #endif
 
 #ifdef __WIN32__
+    #include "wx/dynlib.h"
     #include "wx/msw/private.h"
+
+    #ifndef LOCALE_SNAME
+    #define LOCALE_SNAME 0x5c
+    #endif
 #endif
 
 #include "wx/file.h"
@@ -154,6 +159,19 @@ wxString wxLanguageInfo::GetLocaleName() const
 
     wxChar buffer[256];
     buffer[0] = wxT('\0');
+    if ( wxGetWinVersion() >= wxWinVersion_Vista )
+    {
+        if ( ::GetLocaleInfo(lcid, LOCALE_SNAME, buffer, WXSIZEOF(buffer)) )
+        {
+            locale << buffer;
+        }
+        else
+        {
+            wxLogLastError(wxT("GetLocaleInfo(LOCALE_SNAME)"));
+        }
+        return locale;
+    }
+
     if ( !::GetLocaleInfo(lcid, LOCALE_SENGLANGUAGE, buffer, WXSIZEOF(buffer)) )
     {
         wxLogLastError(wxT("GetLocaleInfo(LOCALE_SENGLANGUAGE)"));
@@ -480,6 +498,18 @@ bool wxLocale::Init(int language, int flags)
 
             // change locale used by Windows functions
             ::SetThreadLocale(lcid);
+
+            // SetThreadUILanguage() may be available on XP, but with unclear
+            // behavior, so avoid calling it there.
+            if ( wxGetWinVersion() >= wxWinVersion_Vista )
+            {
+                wxLoadedDLL dllKernel32(wxS("kernel32.dll"));
+                typedef LANGID(WINAPI *SetThreadUILanguage_t)(LANGID);
+                SetThreadUILanguage_t pfnSetThreadUILanguage = NULL;
+                wxDL_INIT_FUNC(pfn, SetThreadUILanguage, dllKernel32);
+                if (pfnSetThreadUILanguage)
+                    pfnSetThreadUILanguage(LANGIDFROMLCID(lcid));
+            }
 #endif
 
             // and also call setlocale() to change locale used by the CRT
@@ -540,6 +570,11 @@ bool wxLocale::Init(int language, int flags)
     if ( !ret )
     {
         wxLogWarning(_("Cannot set locale to language \"%s\"."), name.c_str());
+
+        // As we failed to change locale, there is no need to restore the
+        // previous one: it's still valid.
+        free(const_cast<char *>(m_pszOldLocale));
+        m_pszOldLocale = NULL;
 
         // continue nevertheless and try to load at least the translations for
         // this language
@@ -611,11 +646,6 @@ inline bool wxGetNonEmptyEnvVar(const wxString& name, wxString* value)
         return wxLANGUAGE_ENGLISH_US;
     }
 
-    if ( langFull == wxS("C") || langFull == wxS("POSIX") )
-    {
-        // default C locale is English too
-        return wxLANGUAGE_ENGLISH_US;
-    }
 #endif
 
     // the language string has the following form
@@ -649,6 +679,12 @@ inline bool wxGetNonEmptyEnvVar(const wxString& name, wxString* value)
     if ( posEndLang != wxString::npos )
     {
         langFull.Truncate(posEndLang);
+    }
+
+    if ( langFull == wxS("C") || langFull == wxS("POSIX") )
+    {
+        // default C locale is English too
+        return wxLANGUAGE_ENGLISH_US;
     }
 
     // do we have just the language (or sublang too)?
@@ -1035,8 +1071,11 @@ wxLocale::~wxLocale()
     // restore old locale pointer
     wxSetLocale(m_pOldLocale);
 
-    wxSetlocale(LC_ALL, m_pszOldLocale);
-    free(const_cast<char *>(m_pszOldLocale));
+    if ( m_pszOldLocale )
+    {
+        wxSetlocale(LC_ALL, m_pszOldLocale);
+        free(const_cast<char *>(m_pszOldLocale));
+    }
 }
 
 
@@ -1251,6 +1290,8 @@ static wxString TranslateFromUnicodeFormat(const wxString& fmt)
                             fmtWX += "%A";
                             break;
                         case 5: // EEEEE
+                        case 6: // EEEEEE
+                            // no "narrow form" in strftime(), use abbrev.
                             fmtWX += "%a";
                             break;
 
@@ -1274,6 +1315,11 @@ static wxString TranslateFromUnicodeFormat(const wxString& fmt)
 
                         case 4:
                             fmtWX += "%B";
+                            break;
+
+                        case 5:
+                            // no "narrow form" in strftime(), use abbrev.
+                            fmtWX += "%b";
                             break;
 
                         default:

@@ -35,7 +35,7 @@ class GSUniformBufferOGL {
 	uint8* m_cache;       // content of the previous upload
 
 public:
-	GSUniformBufferOGL(const string& pretty_name, GLuint index, uint32 size)
+	GSUniformBufferOGL(const std::string& pretty_name, GLuint index, uint32 size)
 		: m_index(index), m_size(size)
 	{
 		glGenBuffers(1, &m_buffer);
@@ -160,8 +160,6 @@ public:
 	}
 
 	~GSUniformBufferStorageOGL() {
-		bind();
-		glUnmapBuffer(GL_UNIFORM_BUFFER);
 		glDeleteBuffers(1, &m_buffer);
 	}
 };

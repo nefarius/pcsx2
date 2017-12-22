@@ -74,7 +74,7 @@ typedef struct
 
 #pragma pack(pop)
 
-static GSVector4 GSRendererCL::m_pos_scale;
+GSVector4 GSRendererCL::m_pos_scale;
 
 void GSRendererCL::InitVectors()
 {
@@ -98,7 +98,8 @@ GSRendererCL::GSRendererCL()
 		m_tc_pages[i] = GSVector4i::xffffffff();
 	}
 
-	memset(m_rw_pages_rendering, 0, sizeof(m_rw_pages_rendering));
+	for (auto& page_ref : m_rw_pages_rendering)
+		page_ref = 0;
 
 	#define InitCVB(P) \
 		m_cvb[P][0][0] = &GSRendererCL::ConvertVertexBuffer<P, 0, 0>; \
@@ -169,7 +170,7 @@ GSTexture* GSRendererCL::GetOutput(int i, int& y_offset)
 	const GSRegDISPFB& DISPFB = m_regs->DISP[i].DISPFB;
 
 	int w = DISPFB.FBW * 64;
-	int h = GetFrameRect(i).bottom;
+	int h = GetFramebufferHeight();
 
 	// TODO: round up bottom
 
@@ -199,8 +200,6 @@ GSTexture* GSRendererCL::GetOutput(int i, int& y_offset)
 			{
 				m_texture[i]->Save(format("c:\\temp1\\_%05d_f%lld_fr%d_%05x_%d.bmp", s_n, m_perfmon.GetFrame(), i, (int)DISPFB.Block(), (int)DISPFB.PSM));
 			}
-
-			s_n++;
 		}
 	}
 
@@ -281,12 +280,10 @@ void GSRendererCL::Draw()
 
 		if(s_save && s_n >= s_saven && PRIM->TME)
 		{
-			s = format("c:\\temp1\\_%05d_f%lld_tex_%05x_%d.bmp", s_n, frame, (int)m_context->TEX0.TBP0, (int)m_context->TEX0.PSM);
+			s = format("c:\\temp1\\_%05d_f%lld_itex_%05x_%d.bmp", s_n, frame, (int)m_context->TEX0.TBP0, (int)m_context->TEX0.PSM);
 
 			m_mem.SaveBMP(s, m_context->TEX0.TBP0, m_context->TEX0.TBW, m_context->TEX0.PSM, 1 << m_context->TEX0.TW, 1 << m_context->TEX0.TH);
 		}
-
-		s_n++;
 
 		if(s_save && s_n >= s_saven)
 		{
@@ -301,8 +298,6 @@ void GSRendererCL::Draw()
 
 			m_mem.SaveBMP(s, m_context->ZBUF.Block(), m_context->FRAME.FBW, m_context->ZBUF.PSM, GetFrameRect().width(), 512);
 		}
-
-		s_n++;
 	}
 
 	try
@@ -410,7 +405,7 @@ void GSRendererCL::Draw()
 			}
 		}
 
-		shared_ptr<TFXJob> job(new TFXJob());
+		std::shared_ptr<TFXJob> job(new TFXJob());
 
 		if(!SetupParameter(job.get(), pb, vb, m_vertex.next, m_index.buff, m_index.tail))
 		{
@@ -558,8 +553,6 @@ void GSRendererCL::Draw()
 
 			m_mem.SaveBMP(s, m_context->ZBUF.Block(), m_context->FRAME.FBW, m_context->ZBUF.PSM, GetFrameRect().width(), 512);
 		}
-
-		s_n++;
 	}
 }
 
@@ -581,7 +574,10 @@ void GSRendererCL::Sync(int reason)
 		m_rw_pages[1][i] = GSVector4i::zero();
 	}
 
-	for(int i = 0; i < MAX_PAGES; i++) ASSERT(m_rw_pages_rendering[i] == 0);
+#ifndef NDEBUG
+	for(const auto& page_ref : m_rw_pages_rendering)
+		ASSERT(page_ref == 0);
+#endif
 
 	m_synced = true;
 }
@@ -801,7 +797,7 @@ void GSRendererCL::Enqueue()
 				auto job = next++;
 
 				uint32 cur_prim_count = (*job)->prim_count;
-				uint32 next_prim_count = next != m_jobs.end() ? (*next)->prim_count : 0;
+				//uint32 next_prim_count = next != m_jobs.end() ? (*next)->prim_count : 0;
 
 				total_prim_count += cur_prim_count;
 
@@ -895,7 +891,7 @@ void GSRendererCL::Enqueue()
 						}
 					}
 
-					std::list<shared_ptr<TFXJob>> jobs(head, next);
+					std::list<std::shared_ptr<TFXJob>> jobs(head, next);
 
 					JoinTFX(jobs);
 
@@ -949,7 +945,7 @@ void GSRendererCL::Enqueue()
 	m_cl.Map();
 }
 
-void GSRendererCL::EnqueueTFX(std::list<shared_ptr<TFXJob>>& jobs, uint32 bin_count, const cl_uchar4& bin_dim)
+void GSRendererCL::EnqueueTFX(std::list<std::shared_ptr<TFXJob>>& jobs, uint32 bin_count, const cl_uchar4& bin_dim)
 {
 	cl_kernel tfx_prev = NULL;
 
@@ -999,7 +995,7 @@ void GSRendererCL::EnqueueTFX(std::list<shared_ptr<TFXJob>>& jobs, uint32 bin_co
 	}
 }
 
-void GSRendererCL::JoinTFX(std::list<shared_ptr<TFXJob>>& jobs)
+void GSRendererCL::JoinTFX(std::list<std::shared_ptr<TFXJob>>& jobs)
 {
 	// join tfx kernel calls where the selector and fbp/zbp/bw/fpsm/zpsm are the same and src_pages != prev dst_pages
 
@@ -1242,7 +1238,11 @@ void GSRendererCL::UsePages(uint32* p)
 				{
 					for(int index = 0; index < 32; index++)
 					{
-						_InterlockedIncrement16((short*)&m_rw_pages_rendering[index | o] + l);
+						//_InterlockedIncrement16((short*)&m_rw_pages_rendering[index | o] + l);
+						if (l == 0)
+							m_rw_pages_rendering[index | o] += 1;
+						else
+							m_rw_pages_rendering[index | o] += 0x10000;
 
 						*p++ = index | o;
 					}
@@ -1253,7 +1253,11 @@ void GSRendererCL::UsePages(uint32* p)
 					{
 						mask &= ~(1 << index);
 
-						_InterlockedIncrement16((short*)&m_rw_pages_rendering[index | o] + l);
+						//_InterlockedIncrement16((short*)&m_rw_pages_rendering[index | o] + l);
+						if (l == 0)
+							m_rw_pages_rendering[index | o] += 1;
+						else
+							m_rw_pages_rendering[index | o] += 0x10000;
 
 						*p++ = index | o;
 					}
@@ -1273,14 +1277,16 @@ void GSRendererCL::ReleasePages(uint32* pages)
 
 	for(; *p != GSOffset::EOP; p++)
 	{
-		_InterlockedDecrement16((short*)&m_rw_pages_rendering[*p] + 0);
+		m_rw_pages_rendering[*p] -= 1;
+		//_InterlockedDecrement16((short*)&m_rw_pages_rendering[*p] + 0);
 	}
 
 	p++;
 
 	for(; *p != GSOffset::EOP; p++)
 	{
-		_InterlockedDecrement16((short*)&m_rw_pages_rendering[*p] + 1);
+		m_rw_pages_rendering[*p] -= 0x10000;
+		//_InterlockedDecrement16((short*)&m_rw_pages_rendering[*p] + 1);
 	}
 }
 
@@ -1447,7 +1453,7 @@ bool GSRendererCL::SetupParameter(TFXJob* job, TFXParameter* pb, GSVertexCL* ver
 
 			bool mipmap = IsMipMapActive();
 
-			GIFRegTEX0 TEX0 = m_context->GetSizeFixedTEX0(m_vt.m_min.t.xyxy(m_vt.m_max.t), m_vt.IsLinear(), mipmap);
+			GIFRegTEX0 TEX0 = m_context->GetSizeFixedTEX0(s_n, m_vt.m_min.t.xyxy(m_vt.m_max.t), m_vt.IsLinear(), mipmap);
 
 			GSVector4i r;
 
@@ -1770,7 +1776,7 @@ bool GSRendererCL::SetupParameter(TFXJob* job, TFXParameter* pb, GSVertexCL* ver
 	if(zwrite || ztest)
 	{
 		sel.zpsm = RemapPSM(context->ZBUF.PSM);
-		sel.ztst = ztest ? context->TEST.ZTST : ZTST_ALWAYS;
+		sel.ztst = ztest ? context->TEST.ZTST : (int)ZTST_ALWAYS;
 
 		if(ztest)
 		{
@@ -1881,7 +1887,7 @@ GSRendererCL::CL::CL()
 	ocldev = "Intel(R) Corporation Intel(R) Core(TM) i7-4770 CPU @ 3.40GHz OpenCL C 1.2 CPU";
 #endif
 
-	list<OCLDeviceDesc> dl;
+	std::list<OCLDeviceDesc> dl;
 
 	GSUtil::GetDeviceDescs(dl);
 
@@ -1910,10 +1916,10 @@ GSRendererCL::CL::CL()
 
 	if(devs.empty())
 	{
-		throw new std::exception("OpenCL device not found");
+		throw new std::runtime_error("OpenCL device not found");
 	}
 
-	vector<cl::Device> tmp;
+	std::vector<cl::Device> tmp;
 
 	for(auto d : devs) tmp.push_back(d.device);
 
@@ -1923,11 +1929,11 @@ GSRendererCL::CL::CL()
 	queue[1] = cl::CommandQueue(context);
 	queue[2] = cl::CommandQueue(context);
 
-	vector<unsigned char> buff;
+	std::vector<char> buff;
 
 	if(theApp.LoadResource(IDR_TFX_CL, buff))
 	{
-		kernel_str = std::string((const char*)buff.data(), buff.size());
+		kernel_str = std::string(buff.data(), buff.size());
 	}
 
 	vb.head = vb.tail = vb.size = 0;
@@ -1991,7 +1997,7 @@ void GSRendererCL::CL::Unmap()
 	pb.mapped_ptr = pb.ptr = NULL;
 }
 
-cl::Kernel GSRendererCL::CL::Build(const char* entry, ostringstream& opt)
+cl::Kernel GSRendererCL::CL::Build(const char* entry, std::ostringstream& opt)
 {
 	cl::Program program;
 
@@ -2003,15 +2009,15 @@ cl::Kernel GSRendererCL::CL::Build(const char* entry, ostringstream& opt)
 		{
 			for(auto d : devs)
 			{
-				string path = d.tmppath + "/" + entry;
+				std::string path = d.tmppath + "/" + entry;
 
 				FILE* f = fopen(path.c_str(), "rb");
 
 				if(f != NULL)
 				{
-					fseek(f, 0, SEEK_END);				
+					fseek(f, 0, SEEK_END);
 					long size = ftell(f);
-					pair<void*, size_t> b(new char[size], size);
+					std::pair<void*, size_t> b(new char[size], size);
 					fseek(f, 0, SEEK_SET);
 					fread(b.first, b.second, 1, f);
 					fclose(f);
@@ -2026,7 +2032,7 @@ cl::Kernel GSRendererCL::CL::Build(const char* entry, ostringstream& opt)
 
 			if(binaries.size() == devs.size())
 			{
-				vector<cl::Device> tmp;
+				std::vector<cl::Device> tmp;
 
 				for(auto d : devs) tmp.push_back(d.device);
 
@@ -2048,7 +2054,7 @@ cl::Kernel GSRendererCL::CL::Build(const char* entry, ostringstream& opt)
 
 		for(auto b : binaries)
 		{
-			delete [] b.first;
+			delete [] (char*)b.first;
 		}
 	}
 
@@ -2081,12 +2087,12 @@ cl::Kernel GSRendererCL::CL::Build(const char* entry, ostringstream& opt)
 	{
 		try
 		{
-			vector<size_t> sizes = program.getInfo<CL_PROGRAM_BINARY_SIZES>();
-			vector<char*> binaries = program.getInfo<CL_PROGRAM_BINARIES>();
+			std::vector<size_t> sizes = program.getInfo<CL_PROGRAM_BINARY_SIZES>();
+			std::vector<char*> binaries = program.getInfo<CL_PROGRAM_BINARIES>();
 
-			for(int i = 0; i < binaries.size(); i++)
+			for(size_t i = 0; i < binaries.size(); i++)
 			{
-				string path = devs[i].tmppath + "/" + entry;
+				std::string path = devs[i].tmppath + "/" + entry;
 
 				FILE* f = fopen(path.c_str(), "wb");
 
@@ -2108,7 +2114,7 @@ cl::Kernel GSRendererCL::CL::Build(const char* entry, ostringstream& opt)
 	return cl::Kernel(program, entry);
 }
 
-void GSRendererCL::CL::AddDefs(ostringstream& opt)
+void GSRendererCL::CL::AddDefs(std::ostringstream& opt)
 {
 	if(version == 110) opt << "-cl-std=CL1.1 ";
 	else opt << "-cl-std=CL1.2 ";
@@ -2138,9 +2144,9 @@ cl::Kernel& GSRendererCL::CL::GetPrimKernel(const PrimSelector& sel)
 
 	char entry[256];
 
-	sprintf(entry, "prim_%02x", sel);
+	sprintf(entry, "prim_%02x", sel.key);
 
-	ostringstream opt;
+	std::ostringstream opt;
 
 	opt << "-D KERNEL_PRIM=" << entry << " ";
 	opt << "-D PRIM=" << sel.prim << " ";
@@ -2165,9 +2171,9 @@ cl::Kernel& GSRendererCL::CL::GetTileKernel(const TileSelector& sel)
 
 	char entry[256];
 
-	sprintf(entry, "tile_%02x", sel);
+	sprintf(entry, "tile_%02x", sel.key);
 
-	ostringstream opt;
+	std::ostringstream opt;
 
 	opt << "-D KERNEL_TILE=" << entry << " ";
 	opt << "-D PRIM=" << sel.prim << " ";
@@ -2194,9 +2200,9 @@ cl::Kernel& GSRendererCL::CL::GetTFXKernel(const TFXSelector& sel)
 
 	char entry[256];
 
-	sprintf(entry, "tfx_%016llx", sel);
+	sprintf(entry, "tfx_%016llx", sel.key);
 
-	ostringstream opt;
+	std::ostringstream opt;
 
 	opt << "-D KERNEL_TFX=" << entry << " ";
 	opt << "-D FPSM=" << sel.fpsm << " ";

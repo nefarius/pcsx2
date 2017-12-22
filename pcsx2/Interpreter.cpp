@@ -83,9 +83,9 @@ void intMemcheck(u32 op, u32 bits, bool store)
 
 		if (check.result == 0)
 			continue;
-		if ((check.cond & MEMCHECK_WRITE) == 0 && store == true)
+		if ((check.cond & MEMCHECK_WRITE) == 0 && store)
 			continue;
-		if ((check.cond & MEMCHECK_READ) == 0 && store == false)
+		if ((check.cond & MEMCHECK_READ) == 0 && !store)
 			continue;
 
 		if (start < check.end && check.start < end)
@@ -299,10 +299,9 @@ void BGEZ()    // Branch if Rs >= 0
 
 void BGEZAL() // Branch if Rs >= 0 and link
 {
-
+	_SetLink(31);
 	if (cpuRegs.GPR.r[_Rs_].SD[0] >= 0)
 	{
-		_SetLink(31);
 		doBranch(_BranchTarget_);
 	}
 }
@@ -333,9 +332,9 @@ void BLTZ()    // Branch if Rs <  0
 
 void BLTZAL()  // Branch if Rs <  0 and link
 {
+	_SetLink(31);
 	if (cpuRegs.GPR.r[_Rs_].SD[0] < 0)
 	{
-		_SetLink(31);
 		doBranch(_BranchTarget_);
 	}
 }
@@ -426,10 +425,9 @@ void BGEZL()     // Branch if Rs >= 0
 
 void BLTZALL()   // Branch if Rs <  0 and link
 {
-
+	_SetLink(31);
 	if(cpuRegs.GPR.r[_Rs_].SD[0] < 0)
 	{
-		_SetLink(31);
 		doBranch(_BranchTarget_);
 	}
 	else
@@ -441,10 +439,9 @@ void BLTZALL()   // Branch if Rs <  0 and link
 
 void BGEZALL()   // Branch if Rs >= 0 and link
 {
-
+	_SetLink(31);
 	if(cpuRegs.GPR.r[_Rs_].SD[0] >= 0)
 	{
-		_SetLink(31);
 		doBranch(_BranchTarget_);
 	}
 	else

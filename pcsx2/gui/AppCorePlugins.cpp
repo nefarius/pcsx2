@@ -50,7 +50,7 @@ protected:
 	PluginEventType		m_evt;
 
 public:
-	virtual ~CorePluginsEvent() throw() {}
+	virtual ~CorePluginsEvent() = default;
 	CorePluginsEvent* Clone() const { return new CorePluginsEvent( *this ); }
 
 	explicit CorePluginsEvent( PluginEventType evt, SynchronousActionState* sema=NULL )
@@ -107,17 +107,17 @@ class SysExecEvent_AppPluginManager : public SysExecEvent
 {
 protected:
 	FnPtr_AppPluginManager	m_method;
-	
+
 public:
 	wxString GetEventName() const { return L"CorePluginsMethod"; }
-	virtual ~SysExecEvent_AppPluginManager() throw() {}
+	virtual ~SysExecEvent_AppPluginManager() = default;
 	SysExecEvent_AppPluginManager* Clone() const { return new SysExecEvent_AppPluginManager( *this ); }
 
 	SysExecEvent_AppPluginManager( FnPtr_AppPluginManager method )
 	{
 		m_method = method;
 	}
-	
+
 protected:
 	void InvokeEvent()
 	{
@@ -138,9 +138,9 @@ protected:
 	PluginsEnum_t	m_pid;
 
 public:
-	virtual ~LoadSinglePluginEvent() throw() { }
+	virtual ~LoadSinglePluginEvent() = default;
 	virtual LoadSinglePluginEvent *Clone() const { return new LoadSinglePluginEvent(*this); }
-	
+
 	LoadSinglePluginEvent( PluginsEnum_t pid = PluginId_GS, const wxString& filename=wxEmptyString )
 		: m_filename( filename )
 	{
@@ -167,15 +167,15 @@ protected:
 	FnPtr_AppPluginPid		m_method;
 
 public:
-	virtual ~SinglePluginMethodEvent() throw() { }
+	virtual ~SinglePluginMethodEvent() = default;
 	virtual SinglePluginMethodEvent *Clone() const { return new SinglePluginMethodEvent(*this); }
-	
+
 	SinglePluginMethodEvent( FnPtr_AppPluginPid method=NULL,  PluginsEnum_t pid = PluginId_GS )
 	{
 		m_pid		= pid;
 		m_method	= method;
 	}
-	
+
 protected:
 	void InvokeEvent()
 	{
@@ -203,13 +203,6 @@ IMPLEMENT_DYNAMIC_CLASS( SinglePluginMethodEvent, pxActionEvent );
 //  the main thread from being completely busy while plugins are loaded and initialized.
 //  (responsiveness is bliss!!) -- air
 //
-AppCorePlugins::AppCorePlugins()
-{
-}
-
-AppCorePlugins::~AppCorePlugins() throw()
-{
-}
 
 static void _SetSettingsFolder()
 {
@@ -366,9 +359,8 @@ bool AppCorePlugins::OpenPlugin_GS()
 
 	bool retval = _parent::OpenPlugin_GS();
 
-	if( g_LimiterMode == Limit_Turbo )
-		GSsetVsync( false );
-		
+	GSsetVsync(EmuConfig.GS.GetVsync());
+
 	return retval;
 }
 
@@ -409,7 +401,7 @@ protected:
 	{
 		CorePlugins.Load( m_folders );
 	}
-	~LoadCorePluginsEvent() throw() {}
+	~LoadCorePluginsEvent() = default;
 };
 
 // --------------------------------------------------------------------------------------
@@ -424,7 +416,7 @@ int EnumeratePluginsInFolder(const wxDirName& searchpath, wxArrayString* dest)
 	wxArrayString* realdest = dest;
 	if (realdest == NULL)
 	{
-		placebo = std::unique_ptr<wxArrayString>(new wxArrayString());
+		placebo = std::make_unique<wxArrayString>();
 		realdest = placebo.get();
 	}
 
@@ -507,7 +499,7 @@ class SysExecEvent_UnloadPlugins : public SysExecEvent
 public:
 	wxString GetEventName() const { return L"UnloadPlugins"; }
 
-	virtual ~SysExecEvent_UnloadPlugins() throw() {}
+	virtual ~SysExecEvent_UnloadPlugins() = default;
 	SysExecEvent_UnloadPlugins* Clone() const { return new SysExecEvent_UnloadPlugins(*this); }
 
 	virtual bool AllowCancelOnExit() const { return false; }
@@ -525,7 +517,7 @@ class SysExecEvent_ShutdownPlugins : public SysExecEvent
 public:
 	wxString GetEventName() const { return L"ShutdownPlugins"; }
 
-	virtual ~SysExecEvent_ShutdownPlugins() throw() {}
+	virtual ~SysExecEvent_ShutdownPlugins() = default;
 	SysExecEvent_ShutdownPlugins* Clone() const { return new SysExecEvent_ShutdownPlugins(*this); }
 
 	virtual bool AllowCancelOnExit() const { return false; }
@@ -562,7 +554,7 @@ void SysExecEvent_SaveSinglePlugin::InvokeEvent()
 		if( CoreThread.HasActiveMachine() )
 		{
 			Console.WriteLn( Color_Green, L"Suspending single plugin: " + tbl_PluginInfo[m_pid].GetShortname() );
-			plugstore = std::unique_ptr<VmStateBuffer>(new VmStateBuffer(L"StateCopy_SinglePlugin"));
+			plugstore = std::make_unique<VmStateBuffer>(L"StateCopy_SinglePlugin");
 			memSavingState save( plugstore.get() );
 			GetCorePlugins().Freeze( m_pid, save );
 		}

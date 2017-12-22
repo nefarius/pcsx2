@@ -22,6 +22,7 @@
 #pragma once
 
 #include "GSSetting.h"
+#include "GS.h"
 
 class GSdxApp
 {
@@ -31,6 +32,7 @@ class GSdxApp
 #if defined(__unix__)
 	std::map< std::string, std::string > m_configuration_map;
 #endif
+	GSRendererType m_current_renderer_type;
 
 public:
 	GSdxApp();
@@ -51,39 +53,45 @@ public:
 	int GetPrivateProfileInt(const char* lpAppName, const char* lpKeyName, int nDefault, const char* lpFileName);
 #endif
 
-	bool LoadResource(int id, vector<unsigned char>& buff, const char* type = NULL);
+	bool LoadResource(int id, std::vector<char>& buff, const char* type = nullptr);
 
 	void SetConfig(const char* entry, const char* value);
 	void SetConfig(const char* entry, int value);
 	// Avoid issue with overloading
+	template<typename T>
+	T      GetConfigT(const char* entry) { return static_cast<T>(GetConfigI(entry)); }
 	int    GetConfigI(const char* entry);
 	bool   GetConfigB(const char* entry);
-	string GetConfigS(const char* entry);
+	std::string GetConfigS(const char* entry);
 
+	void SetCurrentRendererType(GSRendererType type);
+	GSRendererType GetCurrentRendererType();
 
 	void SetConfigDir(const char* dir);
 
-	vector<GSSetting> m_gs_renderers;
-	vector<GSSetting> m_gs_interlace;
-	vector<GSSetting> m_gs_aspectratio;
-	vector<GSSetting> m_gs_upscale_multiplier;
-	vector<GSSetting> m_gs_max_anisotropy;
-	vector<GSSetting> m_gs_filter;
-	vector<GSSetting> m_gs_gl_ext;
-	vector<GSSetting> m_gs_hack;
-	vector<GSSetting> m_gs_crc_level;
-	vector<GSSetting> m_gs_acc_blend_level;
-	vector<GSSetting> m_gs_tv_shaders;
+	std::vector<GSSetting> m_gs_renderers;
+	std::vector<GSSetting> m_gs_interlace;
+	std::vector<GSSetting> m_gs_aspectratio;
+	std::vector<GSSetting> m_gs_upscale_multiplier;
+	std::vector<GSSetting> m_gs_max_anisotropy;
+	std::vector<GSSetting> m_gs_bifilter;
+	std::vector<GSSetting> m_gs_trifilter;
+	std::vector<GSSetting> m_gs_gl_ext;
+	std::vector<GSSetting> m_gs_hack;
+	std::vector<GSSetting> m_gs_offset_hack;
+	std::vector<GSSetting> m_gs_hw_mipmapping;
+	std::vector<GSSetting> m_gs_crc_level;
+	std::vector<GSSetting> m_gs_acc_blend_level;
+	std::vector<GSSetting> m_gs_tv_shaders;
 
-	vector<GSSetting> m_gpu_renderers;
-	vector<GSSetting> m_gpu_filter;
-	vector<GSSetting> m_gpu_dithering;
-	vector<GSSetting> m_gpu_aspectratio;
-	vector<GSSetting> m_gpu_scale;
+	std::vector<GSSetting> m_gpu_renderers;
+	std::vector<GSSetting> m_gpu_filter;
+	std::vector<GSSetting> m_gpu_dithering;
+	std::vector<GSSetting> m_gpu_aspectratio;
+	std::vector<GSSetting> m_gpu_scale;
 };
 
 struct GSDXError {};
 struct GSDXRecoverableError : GSDXError {};
-struct GSDXErrorOOM : GSDXError {};
 
 extern GSdxApp theApp;

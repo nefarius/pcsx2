@@ -28,15 +28,15 @@
 const unsigned int s_interlace_nb = 8;
 const unsigned int s_post_shader_nb = 5;
 const unsigned int s_aspect_ratio_nb = 3;
+const unsigned int s_mipmap_nb = 3;
 
 GSRenderer::GSRenderer()
 	: m_shader(0)
 	, m_shift_key(false)
 	, m_control_key(false)
-	, m_framelimit(false)
 	, m_texture_shuffle(false)
 	, m_real_size(0,0)
-	, m_wnd(NULL)
+	, m_wnd()
 	, m_dev(NULL)
 {
 	m_GStitleInfoBuffer[0] = 0;
@@ -44,8 +44,7 @@ GSRenderer::GSRenderer()
 	m_interlace   = theApp.GetConfigI("interlace") % s_interlace_nb;
 	m_aspectratio = theApp.GetConfigI("AspectRatio") % s_aspect_ratio_nb;
 	m_shader      = theApp.GetConfigI("TVShader") % s_post_shader_nb;
-	m_filter      = theApp.GetConfigI("filter");
-	m_vsync       = theApp.GetConfigB("vsync");
+	m_vsync       = theApp.GetConfigI("vsync");
 	m_aa1         = theApp.GetConfigB("aa1");
 	m_fxaa        = theApp.GetConfigB("fxaa");
 	m_shaderfx    = theApp.GetConfigB("shaderfx");
@@ -60,16 +59,6 @@ GSRenderer::~GSRenderer()
 	}*/
 
 	delete m_dev;
-
-	if(m_wnd)
-	{
-		delete m_wnd;
-	}
-}
-
-bool GSRenderer::CreateWnd(const string& title, int w, int h)
-{
-	return m_wnd->Create(title.c_str(), w, h);
 }
 
 bool GSRenderer::CreateDevice(GSDevice* dev)
@@ -83,7 +72,7 @@ bool GSRenderer::CreateDevice(GSDevice* dev)
 	}
 
 	m_dev = dev;
-	m_dev->SetVSync(m_vsync && m_framelimit);
+	m_dev->SetVSync(m_vsync);
 
 	return true;
 }
@@ -112,10 +101,10 @@ bool GSRenderer::Merge(int field)
 			fr[i] = GetFrameRect(i);
 			dr[i] = GetDisplayRect(i);
 
-			display_baseline.x = min(dr[i].left, display_baseline.x);
-			display_baseline.y = min(dr[i].top, display_baseline.y);
-			frame_baseline.x = min(fr[i].left, frame_baseline.x);
-			frame_baseline.y = min(fr[i].top, frame_baseline.y);
+			display_baseline.x = std::min(dr[i].left, display_baseline.x);
+			display_baseline.y = std::min(dr[i].top, display_baseline.y);
+			frame_baseline.x = std::min(fr[i].left, frame_baseline.x);
+			frame_baseline.y = std::min(fr[i].top, frame_baseline.y);
 
 			//printf("[%d]: %d %d %d %d, %d %d %d %d\n", i, fr[i].x,fr[i].y,fr[i].z,fr[i].w , dr[i].x,dr[i].y,dr[i].z,dr[i].w);
 		}
@@ -126,7 +115,7 @@ bool GSRenderer::Merge(int field)
 		return false;
 	}
 
-	GL_PUSH("Renderer Merge %d", s_n);
+	GL_PUSH("Renderer Merge %d (0: enabled %d 0x%x, 1: enabled %d 0x%x)", s_n, en[0], m_regs->DISP[0].DISPFB.Block(), en[1], m_regs->DISP[1].DISPFB.Block());
 
 	// try to avoid fullscreen blur, could be nice on tv but on a monitor it's like double vision, hurts my eyes (persona 4, guitar hero)
 	//
@@ -138,42 +127,31 @@ bool GSRenderer::Merge(int field)
 		m_regs->DISP[0].DISPFB.FBW == m_regs->DISP[1].DISPFB.FBW &&
 		m_regs->DISP[0].DISPFB.PSM == m_regs->DISP[1].DISPFB.PSM;
 
-	// bool blurdetected = false;
-
 	if(samesrc /*&& m_regs->PMODE.SLBG == 0 && m_regs->PMODE.MMOD == 1 && m_regs->PMODE.ALP == 0x80*/)
 	{
-		if(fr[0].eq(fr[1] + GSVector4i(0, -1, 0, 0)) && dr[0].eq(dr[1] + GSVector4i(0, 0, 0, 1))
-		|| fr[1].eq(fr[0] + GSVector4i(0, -1, 0, 0)) && dr[1].eq(dr[0] + GSVector4i(0, 0, 0, 1)))
-		{
-			// persona 4:
-			//
-			// fr[0] = 0 0 640 448
-			// fr[1] = 0 1 640 448
-			// dr[0] = 159 50 779 498
-			// dr[1] = 159 50 779 497
-			//
-			// second image shifted up by 1 pixel and blended over itself
-			//
-			// god of war:
-			//
-			// fr[0] = 0 1 512 448
-			// fr[1] = 0 0 512 448
-			// dr[0] = 127 50 639 497
-			// dr[1] = 127 50 639 498
-			//
-			// same just the first image shifted
+		// persona 4:
+		//
+		// fr[0] = 0 0 640 448
+		// fr[1] = 0 1 640 448
+		// dr[0] = 159 50 779 498
+		// dr[1] = 159 50 779 497
+		//
+		// second image shifted up by 1 pixel and blended over itself
+		//
+		// god of war:
+		//
+		// fr[0] = 0 1 512 448
+		// fr[1] = 0 0 512 448
+		// dr[0] = 127 50 639 497
+		// dr[1] = 127 50 639 498
+		//
+		// same just the first image shifted
+		//
+		// These kinds of cases are now fixed by the more generic frame_diff code below, as the code here was too specific and has become obsolete.
+		// NOTE: Persona 4 and God Of War are not rare exceptions, many games have the same(or very similar) offsets.
 
-			int top = min(fr[0].top, fr[1].top);
-			int bottom = max(dr[0].bottom, dr[1].bottom);
-
-			fr[0].top = top;
-			fr[1].top = top;
-			dr[0].bottom = bottom;
-			dr[1].bottom = bottom;
-
-			// blurdetected = true;
-		}
-		else if(dr[0].eq(dr[1]) && (fr[0].eq(fr[1] + GSVector4i(0, 1, 0, 1)) || fr[1].eq(fr[0] + GSVector4i(0, 1, 0, 1))))
+		int topDiff = fr[0].top - fr[1].top;
+		if (dr[0].eq(dr[1]) && (fr[0].eq(fr[1] + GSVector4i(0, topDiff, 0, topDiff)) || fr[1].eq(fr[0] + GSVector4i(0, topDiff, 0, topDiff))))
 		{
 			// dq5:
 			//
@@ -182,24 +160,25 @@ bool GSRenderer::Merge(int field)
 			// dr[0] = 127 50 639 494
 			// dr[1] = 127 50 639 494
 
-			int top = min(fr[0].top, fr[1].top);
-			int bottom = min(fr[0].bottom, fr[1].bottom);
+			int top = std::min(fr[0].top, fr[1].top);
+			int bottom = std::min(fr[0].bottom, fr[1].bottom);
 
 			fr[0].top = fr[1].top = top;
 			fr[0].bottom = fr[1].bottom = bottom;
-
-			// blurdetected = true;
 		}
-		//printf("samesrc = %d blurdetected = %d\n",samesrc,blurdetected);
 	}
 
 	GSVector2i fs(0, 0);
 	GSVector2i ds(0, 0);
 
-	GSTexture* tex[2] = {NULL, NULL};
-	int y_offset[2]   = {0, 0};
+	GSTexture* tex[3] = {NULL, NULL, NULL};
+	int y_offset[3]   = {0, 0, 0};
 
-	if(samesrc && fr[0].bottom == fr[1].bottom)
+	s_n++;
+
+	bool feedback_merge = m_regs->EXTWRITE.WRITE == 1;
+
+	if(samesrc && fr[0].bottom == fr[1].bottom && !feedback_merge)
 	{
 		tex[0]      = GetOutput(0, y_offset[0]);
 		tex[1]      = tex[0]; // saves one texture fetch
@@ -209,6 +188,7 @@ bool GSRenderer::Merge(int field)
 	{
 		if(en[0]) tex[0] = GetOutput(0, y_offset[0]);
 		if(en[1]) tex[1] = GetOutput(1, y_offset[1]);
+		if(feedback_merge) tex[2] = GetFeedbackOutput();
 	}
 
 	GSVector4 src[2];
@@ -225,7 +205,7 @@ bool GSRenderer::Merge(int field)
 		src[i] = GSVector4(r) * scale / GSVector4(tex[i]->GetSize()).xyxy();
 		src_hw[i] = (GSVector4(r) + GSVector4 (0, y_offset[i], 0, y_offset[i])) * scale / GSVector4(tex[i]->GetSize()).xyxy();
 
-		GSVector2 off(0, 0);
+		GSVector2 off(0);
 		GSVector2i display_diff(dr[i].left - display_baseline.x, dr[i].top - display_baseline.y);
 		GSVector2i frame_diff(fr[i].left - frame_baseline.x, fr[i].top - frame_baseline.y);
 
@@ -236,12 +216,12 @@ bool GSRenderer::Merge(int field)
 			off.x = tex[i]->GetScale().x * display_diff.x;
 		}
 		// If the DX offset is too small then consider the status of frame memory offsets, prevents blurring on Tenchu: Fatal Shadows, Worms 3D
-		else if(display_diff.x || frame_diff.x)
+		else if(display_diff.x != frame_diff.x)
 		{
 			off.x = tex[i]->GetScale().x * frame_diff.x;
 		}
 
-		if(display_diff.y >= 4) // Shouldn't this be 2?
+		if(display_diff.y >= 4) // Shouldn't this be >= 2?
 		{
 			off.y = tex[i]->GetScale().y * display_diff.y;
 
@@ -250,15 +230,15 @@ bool GSRenderer::Merge(int field)
 				off.y /= 2;
 			}
 		}
-		else if(display_diff.y || frame_diff.y)
+		else if(display_diff.y != frame_diff.y)
 		{
 			off.y = tex[i]->GetScale().y * frame_diff.y;
 		}
 
 		dst[i] = GSVector4(off).xyxy() + scale * GSVector4(r.rsize());
 
-		fs.x = max(fs.x, (int)(dst[i].z + 0.5f));
-		fs.y = max(fs.y, (int)(dst[i].w + 0.5f));
+		fs.x = std::max(fs.x, (int)(dst[i].z + 0.5f));
+		fs.y = std::max(fs.y, (int)(dst[i].w + 0.5f));
 	}
 
 	ds = fs;
@@ -270,7 +250,6 @@ bool GSRenderer::Merge(int field)
 	m_real_size = ds;
 
 	bool slbg = m_regs->PMODE.SLBG;
-	bool mmod = m_regs->PMODE.MMOD;
 
 	if(tex[0] || tex[1])
 	{
@@ -283,7 +262,7 @@ bool GSRenderer::Merge(int field)
 
 		GSVector4 c = GSVector4((int)m_regs->BGCOLOR.R, (int)m_regs->BGCOLOR.G, (int)m_regs->BGCOLOR.B, (int)m_regs->PMODE.ALP) / 255;
 
-		m_dev->Merge(tex, src_hw, dst, fs, slbg, mmod, c);
+		m_dev->Merge(tex, src_hw, dst, fs, m_regs->PMODE, m_regs->EXTBUF, c);
 
 		if(m_regs->SMODE2.INT && m_interlace > 0)
 		{
@@ -325,16 +304,9 @@ GSVector2i GSRenderer::GetInternalResolution()
 	return m_real_size;
 }
 
-void GSRenderer::SetFrameLimit(bool limit)
+void GSRenderer::SetVSync(int vsync)
 {
-	m_framelimit = limit;
-
-	if(m_dev) m_dev->SetVSync(m_vsync && m_framelimit);
-}
-
-void GSRenderer::SetVSync(bool enabled)
-{
-	m_vsync = enabled;
+	m_vsync = vsync;
 
 	if(m_dev) m_dev->SetVSync(m_vsync);
 }
@@ -346,6 +318,11 @@ void GSRenderer::VSync(int field)
 	m_perfmon.Put(GSPerfMon::Frame);
 
 	Flush();
+
+	if(s_dump && s_n >= s_saven)
+	{
+		m_regs->Dump(root_sw + format("%05d_f%lld_gs_reg.txt", s_n, m_perfmon.GetFrame()));
+	}
 
 	if(!m_dev->IsLost(true))
 	{
@@ -369,7 +346,7 @@ void GSRenderer::VSync(int field)
 
 		double fps = 1000.0f / m_perfmon.Get(GSPerfMon::Frame);
 
-		string s;
+		std::string s;
 
 #ifdef GSTITLEINFO_API_FORCE_VERBOSE
 		if(1)//force verbose reply
@@ -379,7 +356,7 @@ void GSRenderer::VSync(int field)
 		{
 			//GSdx owns the window's title, be verbose.
 
-			string s2 = m_regs->SMODE2.INT ? (string("Interlaced ") + (m_regs->SMODE2.FFMD ? "(frame)" : "(field)")) : "Progressive";
+			std::string s2 = m_regs->SMODE2.INT ? (std::string("Interlaced ") + (m_regs->SMODE2.FFMD ? "(frame)" : "(field)")) : "Progressive";
 
 			s = format(
 				"%lld | %d x %d | %.2f fps (%d%%) | %s - %s | %s | %d S/%d P/%d D | %d%% CPU | %.2f | %.2f",
@@ -455,63 +432,55 @@ void GSRenderer::VSync(int field)
 
 	// present
 
+#if 0
+	// This will scale the OSD to the PS2's output resolution.
+	// Will be affected by 2x, 4x, etc scaling.
+	m_dev->m_osd.m_real_size = m_real_size
+#elif 0
+	// This will scale the OSD to the window's size.
+	// Will maintiain the font size no matter what size the window is.
+	GSVector4i window_size = m_wnd->GetClientRect();
+	m_dev->m_osd.m_real_size.x = window_size.v[2];
+	m_dev->m_osd.m_real_size.y = window_size.v[3];
+#else
+	// This will scale the OSD to the native resolution.
+	// Will size font relative to the window's size.
+  // TODO this should probably be done with native calls
+	m_dev->m_osd.m_real_size.x = 1024;
+	m_dev->m_osd.m_real_size.y = 768;
+#endif
 	m_dev->Present(m_wnd->GetClientRect().fit(m_aspectratio), m_shader);
 
 	// snapshot
 
 	if(!m_snapshot.empty())
 	{
-		bool shift = false;
-
-		#ifdef _WIN32
-
-		shift = !!(::GetAsyncKeyState(VK_SHIFT) & 0x8000);
-
-		#else
-
-		shift = m_shift_key;
-
-		#endif
-
-		if(!m_dump && shift)
+		if(!m_dump && m_shift_key)
 		{
-			GSFreezeData fd;
-			fd.size = 0;
-			fd.data = NULL;
+			GSFreezeData fd = {0, nullptr};
 			Freeze(&fd, true);
 			fd.data = new uint8[fd.size];
 			Freeze(&fd, false);
 
-			m_dump.Open(m_snapshot, m_crc, fd, m_regs);
+			if (m_control_key)
+				m_dump = std::unique_ptr<GSDumpBase>(new GSDump(m_snapshot, m_crc, fd, m_regs));
+			else
+				m_dump = std::unique_ptr<GSDumpBase>(new GSDumpXz(m_snapshot, m_crc, fd, m_regs));
 
 			delete [] fd.data;
 		}
 
 		if(GSTexture* t = m_dev->GetCurrent())
 		{
-			t->Save(m_snapshot + ".bmp", true);
+			t->Save(m_snapshot + ".bmp");
 		}
 
 		m_snapshot.clear();
 	}
-	else
+	else if(m_dump)
 	{
-		if(m_dump)
-		{
-            bool control = false;
-
-            #ifdef _WIN32
-
-            control = !!(::GetAsyncKeyState(VK_CONTROL) & 0x8000);
-
-			#else
-
-			control = m_control_key;
-
-            #endif
-
-	    	m_dump.VSync(field, !control, m_regs);
-		}
+		if(m_dump->VSync(field, !m_control_key, m_regs))
+			m_dump.reset();
 	}
 
 	// capture
@@ -539,17 +508,31 @@ void GSRenderer::VSync(int field)
 	}
 }
 
-bool GSRenderer::MakeSnapshot(const string& path)
+bool GSRenderer::MakeSnapshot(const std::string& path)
 {
 	if(m_snapshot.empty())
 	{
-		time_t t = time(NULL);
+		time_t cur_time = time(nullptr);
+		static time_t prev_snap;
+		// The variable 'n' is used for labelling the screenshots when multiple screenshots are taken in
+		// a single second, we'll start using this variable for naming when a second screenshot request is detected
+		// at the same time as the first one. Hence, we're initially setting this counter to 2 to imply that
+		// the captured image is the 2nd image captured at this specific time.
+		static int n = 2;
+		char local_time[16];
 
-		char buff[16];
-
-		if(strftime(buff, sizeof(buff), "%Y%m%d%H%M%S", localtime(&t)))
+		if (strftime(local_time, sizeof(local_time), "%Y%m%d%H%M%S", localtime(&cur_time)))
 		{
-			m_snapshot = format("%s_%s", path.c_str(), buff);
+			if (cur_time == prev_snap)
+			{
+				m_snapshot = format("%s_%s_(%d)", path.c_str(), local_time, n++);
+			}
+			else
+			{
+				n = 2;
+				m_snapshot = format("%s_%s", path.c_str(), local_time);
+			}
+			prev_snap = cur_time;
 		}
 	}
 
@@ -559,7 +542,7 @@ bool GSRenderer::MakeSnapshot(const string& path)
 bool GSRenderer::BeginCapture()
 {
 	GSVector4i disp = m_wnd->GetClientRect().fit(m_aspectratio);
-	float aspect = (float)disp.width() / max(1, disp.height());
+	float aspect = (float)disp.width() / std::max(1, disp.height());
 
 	return m_capture.BeginCapture(GetTvRefreshRate(), GetInternalResolution(), aspect);
 }
@@ -572,10 +555,36 @@ void GSRenderer::EndCapture()
 void GSRenderer::KeyEvent(GSKeyEventData* e)
 {
 #ifdef _WIN32
+	m_shift_key = !!(::GetAsyncKeyState(VK_SHIFT) & 0x8000);
+	m_control_key = !!(::GetAsyncKeyState(VK_CONTROL) & 0x8000);
+#else
+	switch(e->key)
+	{
+		case XK_Shift_L:
+		case XK_Shift_R:
+			m_shift_key = (e->type == KEYPRESS);
+			return;
+		case XK_Control_L:
+		case XK_Control_R:
+			m_control_key = (e->type == KEYPRESS);
+			return;
+	}
+#endif
+
 	if(e->type == KEYPRESS)
 	{
 
-		int step = (::GetAsyncKeyState(VK_SHIFT) & 0x8000) ? -1 : 1;
+		int step = m_shift_key ? -1 : 1;
+
+#if defined(__unix__)
+#define VK_F5 XK_F5
+#define VK_F6 XK_F6
+#define VK_F7 XK_F7
+#define VK_DELETE XK_Delete
+#define VK_INSERT XK_Insert
+#define VK_PRIOR XK_Prior
+#define VK_HOME XK_Home
+#endif
 
 		switch(e->key)
 		{
@@ -596,8 +605,8 @@ void GSRenderer::KeyEvent(GSKeyEventData* e)
 			printf("GSdx: (Software) Edge anti-aliasing is now %s.\n", m_aa1 ? "enabled" : "disabled");
 			return;
 		case VK_INSERT:
-			m_mipmap = !m_mipmap;
-			printf("GSdx: (Software) Mipmapping is now %s.\n", m_mipmap ? "enabled" : "disabled");
+			m_mipmap = (m_mipmap + s_mipmap_nb + step) % s_mipmap_nb;
+			printf("GSdx: Mipmapping is now %s.\n", theApp.m_gs_hack.at(m_mipmap).name.c_str());
 			return;
 		case VK_PRIOR:
 			m_fxaa = !m_fxaa;
@@ -610,67 +619,6 @@ void GSRenderer::KeyEvent(GSKeyEventData* e)
 		}
 
 	}
-#elif defined(__unix__)
-	if(e->type == KEYPRESS)
-	{
-		int step = m_shift_key ? -1 : 1;
-
-		switch(e->key)
-		{
-		case XK_F5:
-			m_interlace = (m_interlace + s_interlace_nb + step) % s_interlace_nb;
-			printf("GSdx: Set deinterlace mode to %d (%s).\n", (int)m_interlace, theApp.m_gs_interlace.at(m_interlace).name.c_str());
-			return;
-		case XK_F6:
-			if( m_wnd->IsManaged() )
-				m_aspectratio = (m_aspectratio + s_aspect_ratio_nb + step) % s_aspect_ratio_nb;
-			return;
-		case XK_F7:
-			m_shader = (m_shader + s_post_shader_nb + step) % s_post_shader_nb;
-			printf("GSdx: Set shader %d.\n", (int)m_shader);
-			return;
-		case XK_Delete:
-			m_aa1 = !m_aa1;
-			printf("GSdx: (Software) Edge anti-aliasing is now %s.\n", m_aa1 ? "enabled" : "disabled");
-			return;
-		case XK_Insert:
-			m_mipmap = !m_mipmap;
-			printf("GSdx: (Software) Mipmapping is now %s.\n", m_mipmap ? "enabled" : "disabled");
-			return;
-		case XK_Prior:
-			m_fxaa = !m_fxaa;
-			printf("GSdx: FXAA anti-aliasing is now %s.\n", m_fxaa ? "enabled" : "disabled");
-			return;
-		case XK_Home:
-			m_shaderfx = !m_shaderfx;
-			printf("GSdx: External post-processing is now %s.\n", m_shaderfx ? "enabled" : "disabled");
-			return;
-		case XK_Shift_L:
-		case XK_Shift_R:
-			m_shift_key = true;
-			return;
-		case XK_Control_L:
-		case XK_Control_R:
-			m_control_key = true;
-			return;
-		}
-
-	}
-	else if(e->type == KEYRELEASE)
-	{
-		switch(e->key)
-		{
-			case XK_Shift_L:
-			case XK_Shift_R:
-				m_shift_key = false;
-				return;
-			case XK_Control_L:
-			case XK_Control_R:
-				m_control_key = false;
-				return;
-		}
-	}
-#endif
 }
 
 void GSRenderer::PurgePool()

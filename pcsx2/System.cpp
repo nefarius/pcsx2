@@ -36,14 +36,12 @@
 // Parameters:
 //   name - a nice long name that accurately describes the contents of this reserve.
 RecompiledCodeReserve::RecompiledCodeReserve( const wxString& name, uint defCommit )
-	: BaseVmReserveListener( name )
+	: VirtualMemoryReserve( name, defCommit )
 {
-	m_blocksize		= (1024 * 128) / __pagesize;
 	m_prot_mode		= PageAccess_Any();
-	m_def_commit	= defCommit / __pagesize;
 }
 
-RecompiledCodeReserve::~RecompiledCodeReserve() throw()
+RecompiledCodeReserve::~RecompiledCodeReserve()
 {
 	_termProfiler();
 }
@@ -59,19 +57,13 @@ void RecompiledCodeReserve::_termProfiler()
 {
 }
 
-uint RecompiledCodeReserve::_calcDefaultCommitInBlocks() const
-{
-	return (m_def_commit + m_blocksize - 1) / m_blocksize;
-}
-
 void* RecompiledCodeReserve::Reserve( size_t size, uptr base, uptr upper_bounds )
 {
 	if (!_parent::Reserve(size, base, upper_bounds)) return NULL;
-	_registerProfiler();
 
-	// Pre-Allocate the first block (to reduce the number of segmentation fault
-	// in debugger)
-	DoCommitAndProtect(0);
+	Commit();
+
+	_registerProfiler();
 
 	return m_baseptr;
 }
@@ -80,11 +72,24 @@ void RecompiledCodeReserve::Reset()
 {
 	_parent::Reset();
 
-	// Pre-Allocate the first block (to reduce the number of segmentation fault
-	// in debugger)
-	DoCommitAndProtect(0);
+	Commit();
 }
 
+bool RecompiledCodeReserve::Commit()
+{
+	bool status = _parent::Commit();
+
+	if (IsDevBuild && m_baseptr)
+	{
+		// Clear the recompiled code block to 0xcc (INT3) -- this helps disasm tools show
+		// the assembly dump more cleanly.  We don't clear the block on Release builds since
+		// it can add a noticeable amount of overhead to large block recompilations.
+
+		memset(m_baseptr, 0xCC, m_pages_commited * __pagesize);
+	}
+
+	return status;
+}
 
 // Sets the abbreviated name used by the profiler.  Name should be under 10 characters long.
 // After a name has been set, a profiler source will be automatically registered and cleared
@@ -94,23 +99,6 @@ RecompiledCodeReserve& RecompiledCodeReserve::SetProfilerName( const wxString& s
 	m_profiler_name = shortname;
 	_registerProfiler();
 	return *this;
-}
-
-void RecompiledCodeReserve::DoCommitAndProtect( uptr page )
-{
-	CommitBlocks(page, (m_pages_commited || !m_def_commit) ? 1 : _calcDefaultCommitInBlocks() );
-}
-
-void RecompiledCodeReserve::OnCommittedBlock( void* block )
-{
-	if (IsDevBuild)
-	{
-		// Clear the recompiled code block to 0xcc (INT3) -- this helps disasm tools show
-		// the assembly dump more cleanly.  We don't clear the block on Release builds since
-		// it can add a noticeable amount of overhead to large block recompilations.
-
-		memset(block, 0xCC, m_blocksize * __pagesize);
-	}
 }
 
 // This error message is shared by R5900, R3000, and microVU recompilers.  It is not used by the
@@ -286,7 +274,7 @@ public:
 	ScopedExcept ExThrown;
 
 	CpuInitializer();
-	virtual ~CpuInitializer() throw();
+	virtual ~CpuInitializer();
 
 	bool IsAvailable() const
 	{
@@ -309,7 +297,7 @@ template< typename CpuType >
 CpuInitializer< CpuType >::CpuInitializer()
 {
 	try {
-		MyCpu = std::unique_ptr<CpuType>(new CpuType());
+		MyCpu = std::make_unique<CpuType>();
 		MyCpu->Reserve();
 	}
 	catch( Exception::RuntimeError& ex )
@@ -327,7 +315,7 @@ CpuInitializer< CpuType >::CpuInitializer()
 }
 
 template< typename CpuType >
-CpuInitializer< CpuType >::~CpuInitializer() throw()
+CpuInitializer< CpuType >::~CpuInitializer()
 {
 	try {
 		if (MyCpu)
@@ -356,7 +344,7 @@ public:
 
 public:
 	CpuInitializerSet() {}
-	virtual ~CpuInitializerSet() throw() {}
+	virtual ~CpuInitializerSet() = default;
 };
 
 
@@ -374,7 +362,7 @@ SysMainMemory::SysMainMemory()
 {
 }
 
-SysMainMemory::~SysMainMemory() throw()
+SysMainMemory::~SysMainMemory()
 {
 	try {
 		ReleaseAll();
@@ -392,9 +380,6 @@ void SysMainMemory::ReserveAll()
 	m_ee.Reserve();
 	m_iop.Reserve();
 	m_vu.Reserve();
-
-	reserveNewVif(0);
-	reserveNewVif(1);
 }
 
 void SysMainMemory::CommitAll()
@@ -476,7 +461,7 @@ SysCpuProviderPack::SysCpuProviderPack()
 	Console.WriteLn( Color_StrongBlue, "Reserving memory for recompilers..." );
 	ConsoleIndentScope indent(1);
 
-	CpuProviders = std::unique_ptr<CpuInitializerSet>(new CpuInitializerSet());
+	CpuProviders = std::make_unique<CpuInitializerSet>();
 
 	try {
 		recCpu.Reserve();
@@ -520,7 +505,7 @@ BaseException* SysCpuProviderPack::GetException_SuperVU1() const { return CpuPro
 #endif
 
 
-void SysCpuProviderPack::CleanupMess() throw()
+void SysCpuProviderPack::CleanupMess() noexcept
 {
 	try
 	{
@@ -536,7 +521,7 @@ void SysCpuProviderPack::CleanupMess() throw()
 	DESTRUCTOR_CATCHALL
 }
 
-SysCpuProviderPack::~SysCpuProviderPack() throw()
+SysCpuProviderPack::~SysCpuProviderPack()
 {
 	CleanupMess();
 }

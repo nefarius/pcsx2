@@ -49,7 +49,7 @@ protected:
 
 public:
 	GSPanel( wxWindow* parent );
-	virtual ~GSPanel() throw();
+	virtual ~GSPanel();
 
 	void DoResize();
 	void DoShowMouse();
@@ -97,7 +97,7 @@ protected:
 
 public:
 	GSFrame( const wxString& title);
-	virtual ~GSFrame() throw();
+	virtual ~GSFrame() = default;
 
 	GSPanel* GetViewport();
 	void SetFocus();

@@ -1,13 +1,9 @@
 #include "GamePad.h"
-#ifdef  SDL_BUILD
+#ifdef SDL_BUILD
 #include "SDL/joystick.h"
 #endif
 
-vector<GamePad*> s_vgamePad;
-bool GamePadIdWithinBounds(int GamePadId)
-{
-	return ((GamePadId >= 0) && (GamePadId < (int)s_vgamePad.size()));
-}
+std::vector<std::unique_ptr<GamePad>> s_vgamePad;
 
 /**
  * Following static methods are just forwarders to their backend
@@ -17,41 +13,45 @@ bool GamePadIdWithinBounds(int GamePadId)
 /**
  * Find every interesting devices and create right structure for them(depend on backend)
  **/
-void GamePad::EnumerateGamePads(vector<GamePad*>& vgamePad)
+void GamePad::EnumerateGamePads(std::vector<std::unique_ptr<GamePad>> &vgamePad)
 {
-#ifdef  SDL_BUILD
-	JoystickInfo::EnumerateJoysticks(vgamePad);
-#endif
-}
-
-void GamePad::UpdateReleaseState()
-{
-#ifdef  SDL_BUILD
-	JoystickInfo::UpdateReleaseState();
+#ifdef SDL_BUILD
+    JoystickInfo::EnumerateJoysticks(vgamePad);
 #endif
 }
 
 /**
  * Safely dispatch to the Rumble method above
  **/
-void GamePad::DoRumble(int type, int pad)
+void GamePad::DoRumble(unsigned type, unsigned pad)
 {
-	u32 id = conf->get_joyid(pad);
-	if (GamePadIdWithinBounds(id)) {
-		GamePad* gamePad = s_vgamePad[id];
-		if (gamePad)
-			gamePad->Rumble(type, pad);
-	}
+    int index = uid_to_index(pad);
+    if (index >= 0)
+        s_vgamePad[index]->Rumble(type, pad);
 }
 
-/**
- * Update state of every attached devices
- **/
-void GamePad::UpdateGamePadState()
+size_t GamePad::index_to_uid(int index)
 {
-#ifdef  SDL_BUILD
-	SDL_JoystickUpdate(); // No need to make yet another function call for that
-#endif
+    if ((index >= 0) && (index < (int)s_vgamePad.size()))
+        return s_vgamePad[index]->GetUniqueIdentifier();
+    else
+        return 0;
 }
 
+int GamePad::uid_to_index(int pad)
+{
+    size_t uid = g_conf.get_joy_uid(pad);
 
+    for (int i = 0; i < (int)s_vgamePad.size(); ++i) {
+        if (s_vgamePad[i]->GetUniqueIdentifier() == uid)
+            return i;
+    }
+
+    // Current uid wasn't found maybe the pad was unplugged. Or
+    // user didn't select it. Fallback to 1st pad for
+    // 1st player. And 2nd pad for 2nd player.
+    if ((int)s_vgamePad.size() > pad)
+        return pad;
+
+    return -1;
+}

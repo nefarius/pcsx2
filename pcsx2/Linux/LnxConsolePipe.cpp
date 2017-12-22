@@ -36,7 +36,7 @@ protected:
 	void ExecuteTaskInThread();
 public:
 	LinuxPipeThread(FILE* stdstream);
-	virtual ~LinuxPipeThread() noexcept;
+	virtual ~LinuxPipeThread();
 };
 
 LinuxPipeThread::LinuxPipeThread(FILE* stdstream)
@@ -69,7 +69,7 @@ LinuxPipeThread::LinuxPipeThread(FILE* stdstream)
 	}
 }
 
-LinuxPipeThread::~LinuxPipeThread() noexcept
+LinuxPipeThread::~LinuxPipeThread()
 {
 	// Close write end of the pipe first so the redirection thread starts
 	// finishing up and restore the original stdout/stderr file descriptor so
@@ -137,7 +137,7 @@ protected:
 
 public:
 	LinuxPipeRedirection(FILE* stdstream);
-	virtual ~LinuxPipeRedirection() noexcept;
+	virtual ~LinuxPipeRedirection() = default;
 };
 
 LinuxPipeRedirection::LinuxPipeRedirection(FILE* stdstream)
@@ -152,10 +152,6 @@ LinuxPipeRedirection::LinuxPipeRedirection(FILE* stdstream)
 		// the constructor, so re-pack a new exception:
 		throw Exception::RuntimeError().SetDiagMsg(ex.FormatDiagnosticMessage());
 	}
-}
-
-LinuxPipeRedirection::~LinuxPipeRedirection() noexcept
-{
 }
 
 PipeRedirectionBase* NewPipeRedir(FILE* stdstream)

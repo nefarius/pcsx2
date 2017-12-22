@@ -22,70 +22,42 @@
 #pragma once
 
 #include <SDL.h>
-#if SDL_MAJOR_VERSION >= 2
 #include <SDL_haptic.h>
-#endif
 
 #include "GamePad.h"
 #include "onepad.h"
 #include "controller.h"
 #define NB_EFFECT 2 // Don't use more than two, ps2 only has one for big motor and one for small(like most systems)
 // holds all joystick info
-class JoystickInfo : GamePad
+class JoystickInfo : public GamePad
 {
-	public:
-		JoystickInfo() : GamePad(), joy(NULL) {
-#if SDL_MAJOR_VERSION >= 2
-			haptic = NULL;
-			first = true;
-#endif
-		 }
+public:
+    JoystickInfo(int id);
+    ~JoystickInfo();
 
-		~JoystickInfo()
-		{
-			Destroy();
-		}
-
-		JoystickInfo(const JoystickInfo&);             // copy constructor
-		JoystickInfo& operator=(const JoystickInfo&); // assignment
-
-		void Destroy();
-		// opens handles to all possible joysticks
-		static void EnumerateJoysticks(vector<GamePad*>& vjoysticks);
-
-		void Rumble(int type,int pad);
-
-		bool Init(int id); // opens a handle and gets information
-
-		bool TestForce(float);
-
-		bool PollButtons(u32 &pkey);
-		bool PollAxes(u32 &pkey);
-		bool PollHats(u32 &pkey);
-
-		int GetHat(int key_to_axis);
-
-		int GetButton(int key_to_button);
+    JoystickInfo(const JoystickInfo &) = delete;            // copy constructor
+    JoystickInfo &operator=(const JoystickInfo &) = delete; // assignment
 
 
-		void SaveState();
+    // opens handles to all possible joysticks
+    static void EnumerateJoysticks(std::vector<std::unique_ptr<GamePad>> &vjoysticks);
 
-		int GetAxisFromKey(int pad, int index);
+    void Rumble(unsigned type, unsigned pad) override;
 
-		static void UpdateReleaseState();
+    bool TestForce(float) override;
 
-	private:
-		SDL_Joystick* GetJoy()
-		{
-			return joy;
-		}
-		void GenerateDefaultEffect();
+    const char *GetName() final;
 
-		SDL_Joystick*		joy;
-#if SDL_MAJOR_VERSION >= 2
-		SDL_Haptic*   		haptic;
-		bool first;
-		SDL_HapticEffect effects[NB_EFFECT];
-		int effects_id[NB_EFFECT];
-#endif
+    int GetInput(gamePadValues input) final;
+
+    void UpdateGamePadState() final;
+
+    size_t GetUniqueIdentifier() final;
+
+private:
+    SDL_GameController *m_controller;
+    SDL_Haptic *m_haptic;
+    std::array<int, NB_EFFECT> m_effects_id;
+    size_t m_unique_id;
+    std::array<int, MAX_KEYS> m_pad_to_sdl;
 };

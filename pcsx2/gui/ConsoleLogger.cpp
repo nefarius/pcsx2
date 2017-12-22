@@ -33,7 +33,7 @@ wxDEFINE_EVENT(pxEvt_SetTitleText, wxCommandEvent);
 wxDEFINE_EVENT(pxEvt_FlushQueue, wxCommandEvent);
 
 // C++ requires abstract destructors to exist, even though they're abstract.
-PipeRedirectionBase::~PipeRedirectionBase() throw() {}
+PipeRedirectionBase::~PipeRedirectionBase() = default;
 
 // ----------------------------------------------------------------------------
 //
@@ -149,17 +149,10 @@ ConsoleLogFrame::ColorArray::ColorArray( int fontsize )
 	SetFont( fontsize );
 }
 
-ConsoleLogFrame::ColorArray::~ColorArray() throw()
-{
-}
-
 void ConsoleLogFrame::ColorArray::SetFont( int fontsize )
 {
 	const wxFont fixed( pxGetFixedFont( fontsize ) );
 	const wxFont fixedB( pxGetFixedFont( fontsize+1, wxFONTWEIGHT_BOLD ) );
-
-	//const wxFont fixed( fontsize, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL );
-	//const wxFont fixedB( fontsize, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD );
 
 	// Standard R, G, B format:
 	for (size_t i = 0; i < Color_StrongBlack; ++i)
@@ -234,6 +227,11 @@ void ConsoleLogFrame::ColorArray::SetFont( const wxFont& font )
 	//	m_table[i].SetFont( font );
 }
 
+u32 ConsoleLogFrame::ColorArray::GetRGBA( const ConsoleColors color )
+{
+	return m_table[color].GetTextColour().GetRGBA();
+}
+
 enum MenuIDs_t
 {
 	MenuId_FontSize_Small = 0x10,
@@ -272,7 +270,7 @@ public:
 		WindowPtr = pxTheApp.m_ptr_ProgramLog;
 	}
 
-	virtual ~ScopedLogLock() throw() {}
+	virtual ~ScopedLogLock() = default;
 
 	bool HasWindow() const
 	{
@@ -346,7 +344,8 @@ void ConLog_LoadSaveSettings( IniInterface& ini )
 ConsoleLogFrame::ConsoleLogFrame( MainEmuFrame *parent, const wxString& title, AppConfig::ConsoleLogOptions& options )
 	: wxFrame(parent, wxID_ANY, title)
 	, m_conf( options )
-	, m_TextCtrl( *new pxLogTextCtrl(this) )
+	, m_TextCtrl( *new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
+		wxTE_MULTILINE | wxTE_READONLY | wxTE_RICH2 | wxTE_NOHIDESEL) )
 	, m_timer_FlushUnlocker( this )
 	, m_ColorTable( options.FontSize )
 
@@ -1210,3 +1209,19 @@ void Pcsx2App::DisableWindowLogging() const
 	AffinityAssert_AllowFrom_MainUI();
 	Console_SetActiveHandler( (emuLog!=NULL) ? (IConsoleWriter&)ConsoleWriter_File : (IConsoleWriter&)ConsoleWriter_Stdout );
 }
+
+void OSDlog(ConsoleColors color, bool console, const std::string& str)
+{
+	if (GSosdLog)
+		GSosdLog(str.c_str(), wxGetApp().GetProgramLog()->GetRGBA(color));
+
+	if (console)
+		Console.WriteLn(color, str.c_str());
+}
+
+void OSDmonitor(ConsoleColors color, const std::string key, const std::string value) {
+	if(!GSosdMonitor) return;
+
+	GSosdMonitor(wxString(key).utf8_str(), wxString(value).utf8_str(), wxGetApp().GetProgramLog()->GetRGBA(color));
+}
+

@@ -87,9 +87,6 @@ class GSBufferOGL {
 		for (size_t i = 0; i < 5; i++) {
 			glDeleteSync(m_fence[i]);
 		}
-		// Don't know if we must do it
-		bind();
-		glUnmapBuffer(m_target);
 		glDeleteBuffers(1, &m_buffer_name);
 	}
 
@@ -98,8 +95,10 @@ class GSBufferOGL {
 		glBindBuffer(m_target, m_buffer_name);
 	}
 
-	void map_upload(const void* src)
+	void* map(size_t count)
 	{
+		m_count = count;
+
 		ASSERT(m_count < m_limit);
 
 		size_t offset = m_start * STRIDE;
@@ -161,21 +160,23 @@ class GSBufferOGL {
 			}
 		}
 
-		void* dst = m_buffer_ptr + offset;
-
-		memcpy(dst, src, length);
-		glFlushMappedBufferRange(m_target, offset, length);
+		return m_buffer_ptr + offset;
 	}
 
-	void upload(const void* src, uint32 count)
+	void unmap()
+	{
+		glFlushMappedBufferRange(m_target, m_start * STRIDE, m_count * STRIDE);
+	}
+
+	void upload(const void* src, size_t count)
 	{
 #ifdef ENABLE_OGL_DEBUG_MEM_BW
 		g_vertex_upload_byte += count * STRIDE;
 #endif
 
-		m_count = count;
-
-		map_upload(src);
+		void* dst = map(count);
+		memcpy(dst, src, count * STRIDE);
+		unmap();
 	}
 
 	void EndScene()
@@ -280,6 +281,8 @@ public:
 
 	void SetTopology(GLenum topology) { m_topology = topology; }
 
+	void* MapVB(size_t count) { return m_vb->map(count); }
+	void UnmapVB() { m_vb->unmap(); }
 	void UploadVB(const void* vertices, size_t count) { m_vb->upload(vertices, count); }
 
 	void UploadIB(const void* index, size_t count) {

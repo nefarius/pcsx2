@@ -22,7 +22,7 @@
 
 #include "Debugger/DisassemblyDialog.h"
 
-#include "Utilities/TlsVariable.inl"
+#include "Utilities/Threading.h"
 
 #include "ps2/BiosTools.h"
 #include "GS.h"
@@ -49,7 +49,7 @@ protected:
 
 public:
 	wxString GetEventName() const { return L"CoreThreadMethod"; }
-	virtual ~SysExecEvent_InvokeCoreThreadMethod() throw() {}
+	virtual ~SysExecEvent_InvokeCoreThreadMethod() = default;
 	SysExecEvent_InvokeCoreThreadMethod* Clone() const { return new SysExecEvent_InvokeCoreThreadMethod(*this); }
 
 	bool AllowCancelOnExit() const { return false; }
@@ -87,7 +87,7 @@ AppCoreThread::AppCoreThread() : SysCoreThread()
 	m_resetCdvd = false;
 }
 
-AppCoreThread::~AppCoreThread() throw()
+AppCoreThread::~AppCoreThread()
 {
 	try {
 		_parent::Cancel();		// use parent's, skips thread affinity check.
@@ -191,12 +191,12 @@ void Pcsx2App::SysApplySettings()
 	CoreThread.ApplySettings( g_Conf->EmuOptions );
 
 	CDVD_SourceType cdvdsrc( g_Conf->CdvdSource );
-	if( cdvdsrc != CDVDsys_GetSourceType() || (cdvdsrc==CDVDsrc_Iso && (CDVDsys_GetFile(cdvdsrc) != g_Conf->CurrentIso)) )
+	if( cdvdsrc != CDVDsys_GetSourceType() || (cdvdsrc == CDVD_SourceType::Iso && (CDVDsys_GetFile(cdvdsrc) != g_Conf->CurrentIso)) )
 	{
 		CoreThread.ResetCdvd();
 	}
 
-	CDVDsys_SetFile( CDVDsrc_Iso, g_Conf->CurrentIso );
+	CDVDsys_SetFile(CDVD_SourceType::Iso, g_Conf->CurrentIso );
 }
 
 void AppCoreThread::OnResumeReady()
@@ -353,6 +353,12 @@ static void _ApplySettings( const Pcsx2Config& src, Pcsx2Config& fixup )
 	else if( !g_Conf->EnableGameFixes )
 		fixup.Gamefixes.DisableAll();
 
+	if( overrides.ProfilingMode )
+	{
+		fixup.GS.FrameLimitEnable = false;
+		fixup.GS.VsyncEnable = VsyncMode::Off;
+	}
+
 	wxString gameCRC;
 	wxString gameSerial;
 	wxString gamePatch;
@@ -440,7 +446,7 @@ static void _ApplySettings( const Pcsx2Config& src, Pcsx2Config& fixup )
 		if (int numberLoadedWideScreenPatches = LoadPatchesFromDir(gameCRC, GetCheatsWsFolder(), L"Widescreen hacks"))
 		{
 			gameWsHacks.Printf(L" [%d widescreen hacks]", numberLoadedWideScreenPatches);
-			Console.WriteLn(Color_Gray, "Found ws patches at cheats_ws --> skipping cheats_ws.zip");
+			Console.WriteLn(Color_Gray, "Found widescreen patches in the cheats_ws folder --> skipping cheats_ws.zip");
 		}
 		else
 		{
@@ -452,13 +458,15 @@ static void _ApplySettings( const Pcsx2Config& src, Pcsx2Config& fixup )
 		}
 	}
 
+	// When we're booting, the bios loader will set a a title which would be more interesting than this
+	// to most users - with region, version, etc, so don't overwrite it with patch info. That's OK. Those
+	// users which want to know the status of the patches at the bios can check the console content.
 	wxString consoleTitle = gameName + gameSerial;
 	consoleTitle += L" [" + gameCRC.MakeUpper() + L"]" + gameCompat + gameFixes + gamePatch + gameCheats + gameWsHacks;
 	if (ingame)
 		Console.SetTitle(consoleTitle);
-	// When we're booting, the bios loader will set a a title which would be more interesting than this
-	// to most users - with region, version, etc, so don't overwrite it with patch info. That's OK. Those
-	// users which want to know the status of the patches at the bios can check the console content.
+
+	gsUpdateFrequency(fixup);
 }
 
 // FIXME: This function is not for general consumption. Its only consumer (and
@@ -502,6 +510,9 @@ void AppCoreThread::ApplySettings( const Pcsx2Config& src )
 	{
 		_parent::ApplySettings( fixup );
 	}
+
+	if (m_ExecMode >= ExecMode_Paused)
+		GSsetVsync(EmuConfig.GS.GetVsync());
 }
 
 // --------------------------------------------------------------------------------------
@@ -702,9 +713,7 @@ BaseScopedCoreThread::BaseScopedCoreThread()
 	m_alreadyScoped		= false;
 }
 
-BaseScopedCoreThread::~BaseScopedCoreThread() throw()
-{
-}
+BaseScopedCoreThread::~BaseScopedCoreThread() = default;
 
 // Allows the object to resume execution upon object destruction.  Typically called as the last thing
 // in the object's scope.  Any code prior to this call that causes exceptions will not resume the emulator,
@@ -769,7 +778,7 @@ ScopedCoreThreadClose::ScopedCoreThreadClose()
 	ScopedCore_IsFullyClosed = true;
 }
 
-ScopedCoreThreadClose::~ScopedCoreThreadClose() throw()
+ScopedCoreThreadClose::~ScopedCoreThreadClose()
 {
 	if( m_alreadyScoped ) return;
 	try {
@@ -799,7 +808,7 @@ ScopedCoreThreadPause::ScopedCoreThreadPause( BaseSysExecEvent_ScopedCore* abuse
 	ScopedCore_IsPaused = true;
 }
 
-ScopedCoreThreadPause::~ScopedCoreThreadPause() throw()
+ScopedCoreThreadPause::~ScopedCoreThreadPause()
 {
 	if( m_alreadyScoped ) return;
 	try {
